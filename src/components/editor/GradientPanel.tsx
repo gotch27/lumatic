@@ -48,8 +48,9 @@ function LocalAdjustmentControl({
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
               if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
                 editorService.cancelAdjustment();
-                event.currentTarget.blur();
               }
             }}
             step={definition.step}

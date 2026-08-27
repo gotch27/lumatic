@@ -3,7 +3,7 @@
 import { Blend, History, RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import { ADJUSTMENT_BY_KEY } from "@/editor/domain/adjustments";
-import type { HistoryEvent, RuntimePhoto } from "@/editor/domain/types";
+import type { AdjustmentKey, HistoryEvent, RuntimePhoto } from "@/editor/domain/types";
 
 function eventLabel(event: HistoryEvent): string {
   if (event.type === "adjustments.reset") return "Reset all adjustments";
@@ -11,8 +11,9 @@ function eventLabel(event: HistoryEvent): string {
   if (event.type === "mask.geometry.changed") return event.payload.label ?? "Gradient moved";
   if (event.type === "mask.deleted") return event.payload.label ?? "Gradient deleted";
   if (event.type === "mask.adjustment.changed" && event.payload.label) return event.payload.label;
+  if (event.payload.label) return event.payload.label;
   if (!event.payload.property) return "Adjustment changed";
-  const property = ADJUSTMENT_BY_KEY[event.payload.property].label;
+  const property = ADJUSTMENT_BY_KEY[event.payload.property as AdjustmentKey]?.label ?? event.payload.property;
   return event.type === "mask.adjustment.changed" ? `${event.payload.maskName ?? "Gradient"} · ${property}` : property;
 }
 

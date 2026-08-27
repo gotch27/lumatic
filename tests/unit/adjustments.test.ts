@@ -7,7 +7,15 @@ import {
   createDefaultAdjustments,
   createDefaultEditState,
   isEdited,
+  normalizeEditState,
 } from "@/editor/domain/adjustments";
+import {
+  DETAIL_DEFINITIONS,
+  EFFECT_DEFINITIONS,
+  createDefaultColorMix,
+  createDefaultToneCurve,
+  normalizeCurveValues,
+} from "@/editor/domain/developSettings";
 
 describe("adjustment domain", () => {
   it("defines the ten human editing controls", () => {
@@ -64,5 +72,25 @@ describe("adjustment domain", () => {
       adjustments: createDefaultAdjustments(),
     });
     expect(isEdited(state)).toBe(true);
+  });
+
+  it("defines neutral Lightroom-style develop groups and independent curve data", () => {
+    expect(EFFECT_DEFINITIONS.map((item) => item.key)).toContain("grain");
+    expect(DETAIL_DEFINITIONS.map((item) => item.key)).toContain("colorNoise");
+    const state = createDefaultEditState();
+    const second = createDefaultEditState();
+    state.toneCurve.rgb[2] = 0.7;
+    state.colorMix.blue.saturation = -25;
+    expect(second.toneCurve).toEqual(createDefaultToneCurve());
+    expect(second.colorMix).toEqual(createDefaultColorMix());
+    expect(isEdited(state)).toBe(true);
+  });
+
+  it("normalizes legacy edit state and clamps curve points", () => {
+    const legacy = normalizeEditState({ adjustments: { ...createDefaultAdjustments(), exposure: 1 } });
+    expect(legacy.toneCurve.rgb).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(legacy.effects.vignetteMidpoint).toBe(50);
+    expect(legacy.detail.sharpeningRadius).toBe(1);
+    expect(normalizeCurveValues([-2, 0.2, 0.56789, 0.8, 4])).toEqual([0, 0.2, 0.5679, 0.8, 1]);
   });
 });

@@ -136,4 +136,45 @@ describe("editor command service", () => {
     editorService.redo("photo-1");
     expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.8);
   });
+
+  it("coalesces curves, color, effects, and detail into structured history", () => {
+    editorService.previewToneCurve("photo-1", "rgb", [0, 0.2, 0.62, 0.8, 1]);
+    editorService.commitToneCurve("photo-1", "rgb", [0, 0.2, 0.62, 0.8, 1]);
+    editorService.previewColorMix("photo-1", "blue", "saturation", -35);
+    editorService.commitColorMix("photo-1", "blue", "saturation", -35);
+    editorService.previewColorGradeWheel("photo-1", "shadows", 218, 32);
+    editorService.previewColorGradeWheel("photo-1", "shadows", 225, 40);
+    editorService.commitColorGradeWheel("photo-1", "shadows", 225, 40);
+    editorService.previewEffect("photo-1", "dehaze", 24);
+    editorService.commitEffect("photo-1", "dehaze", 24);
+    editorService.previewDetail("photo-1", "sharpening", 45);
+    editorService.commitDetail("photo-1", "sharpening", 45);
+
+    const state = useEditorStore.getState();
+    expect(state.photos[0].editState).toMatchObject({
+      toneCurve: { rgb: [0, 0.2, 0.62, 0.8, 1] },
+      colorMix: { blue: { saturation: -35 } },
+      colorGrading: { shadows: { hue: 225, saturation: 40 } },
+      effects: { dehaze: 24 },
+      detail: { sharpening: 45 },
+    });
+    expect(state.historyByPhoto["photo-1"].map((event) => event.type)).toEqual([
+      "curve.changed",
+      "colorMix.changed",
+      "colorGrading.changed",
+      "effect.changed",
+      "detail.changed",
+    ]);
+    editorService.undo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.detail.sharpening).toBe(0);
+    editorService.redo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.detail.sharpening).toBe(45);
+  });
+
+  it("cancels a live develop setting without creating history", () => {
+    editorService.previewEffect("photo-1", "clarity", 80);
+    editorService.cancelAdjustment();
+    expect(useEditorStore.getState().photos[0].editState.effects.clarity).toBe(0);
+    expect(useEditorStore.getState().historyByPhoto["photo-1"]).toHaveLength(0);
+  });
 });

@@ -1,4 +1,16 @@
 import type { AdjustmentKey, AdjustmentValues, LinearGradientMask, PhotoEditState } from "./types";
+import {
+  cloneColorGrading,
+  cloneColorMix,
+  cloneToneCurve,
+  createDefaultColorGrading,
+  createDefaultColorMix,
+  createDefaultDetail,
+  createDefaultEffects,
+  createDefaultToneCurve,
+  hasDevelopEdits,
+  normalizeCurveValues,
+} from "./developSettings";
 
 export interface AdjustmentDefinition {
   key: AdjustmentKey;
@@ -45,7 +57,15 @@ export function createDefaultAdjustments(): AdjustmentValues {
 }
 
 export function createDefaultEditState(): PhotoEditState {
-  return { adjustments: createDefaultAdjustments(), masks: [] };
+  return {
+    adjustments: createDefaultAdjustments(),
+    toneCurve: createDefaultToneCurve(),
+    colorMix: createDefaultColorMix(),
+    colorGrading: createDefaultColorGrading(),
+    effects: createDefaultEffects(),
+    detail: createDefaultDetail(),
+    masks: [],
+  };
 }
 
 export function cloneMask(mask: LinearGradientMask): LinearGradientMask {
@@ -55,13 +75,44 @@ export function cloneMask(mask: LinearGradientMask): LinearGradientMask {
 export function cloneEditState(editState: PhotoEditState): PhotoEditState {
   return {
     adjustments: { ...editState.adjustments },
+    toneCurve: cloneToneCurve(editState.toneCurve),
+    colorMix: cloneColorMix(editState.colorMix),
+    colorGrading: cloneColorGrading(editState.colorGrading),
+    effects: { ...editState.effects },
+    detail: { ...editState.detail },
     masks: editState.masks.map(cloneMask),
   };
 }
 
 export function normalizeEditState(editState: Partial<PhotoEditState> | undefined): PhotoEditState {
+  const defaultCurve = createDefaultToneCurve();
+  const storedCurve = editState?.toneCurve;
+  const defaultMix = createDefaultColorMix();
+  const storedMix = editState?.colorMix;
+  const defaultGrading = createDefaultColorGrading();
+  const storedGrading = editState?.colorGrading;
   return {
     adjustments: { ...DEFAULT_ADJUSTMENTS, ...(editState?.adjustments ?? {}) },
+    toneCurve: {
+      rgb: normalizeCurveValues(storedCurve?.rgb ?? defaultCurve.rgb),
+      red: normalizeCurveValues(storedCurve?.red ?? defaultCurve.red),
+      green: normalizeCurveValues(storedCurve?.green ?? defaultCurve.green),
+      blue: normalizeCurveValues(storedCurve?.blue ?? defaultCurve.blue),
+    },
+    colorMix: Object.fromEntries(Object.keys(defaultMix).map((key) => [key, {
+      ...defaultMix[key as keyof typeof defaultMix],
+      ...(storedMix?.[key as keyof typeof storedMix] ?? {}),
+    }])) as PhotoEditState["colorMix"],
+    colorGrading: {
+      shadows: { ...defaultGrading.shadows, ...(storedGrading?.shadows ?? {}) },
+      midtones: { ...defaultGrading.midtones, ...(storedGrading?.midtones ?? {}) },
+      highlights: { ...defaultGrading.highlights, ...(storedGrading?.highlights ?? {}) },
+      global: { ...defaultGrading.global, ...(storedGrading?.global ?? {}) },
+      blending: storedGrading?.blending ?? defaultGrading.blending,
+      balance: storedGrading?.balance ?? defaultGrading.balance,
+    },
+    effects: { ...createDefaultEffects(), ...(editState?.effects ?? {}) },
+    detail: { ...createDefaultDetail(), ...(editState?.detail ?? {}) },
     masks: (editState?.masks ?? []).map((mask) => ({
       ...mask,
       adjustments: { ...DEFAULT_ADJUSTMENTS, ...mask.adjustments },
@@ -72,9 +123,10 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
 export function isEdited(editStateOrAdjustments: PhotoEditState | AdjustmentValues): boolean {
   const editState = "masks" in editStateOrAdjustments
     ? editStateOrAdjustments
-    : { adjustments: editStateOrAdjustments, masks: [] };
+    : { ...createDefaultEditState(), adjustments: editStateOrAdjustments };
   return editState.masks.length > 0
-    || ADJUSTMENT_DEFINITIONS.some(({ key }) => editState.adjustments[key] !== DEFAULT_ADJUSTMENTS[key]);
+    || ADJUSTMENT_DEFINITIONS.some(({ key }) => editState.adjustments[key] !== DEFAULT_ADJUSTMENTS[key])
+    || hasDevelopEdits(editState.toneCurve, editState.colorMix, editState.colorGrading, editState.effects, editState.detail);
 }
 
 export function clampAdjustment(key: AdjustmentKey, value: number): number {

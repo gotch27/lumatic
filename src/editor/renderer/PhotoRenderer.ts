@@ -5,6 +5,7 @@ import type { PhotoEditState } from "@/editor/domain/types";
 import {
   createAdjustmentFilter,
   setFilterEditState,
+  setFilterImageSize,
   type AdjustmentFilter,
 } from "./adjustmentShader";
 
@@ -75,6 +76,7 @@ export class PhotoRenderer {
     } else {
       this.sprite.texture = texture;
     }
+    setFilterImageSize(this.filter, texture.width, texture.height);
     this.fit();
   }
 

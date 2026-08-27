@@ -14,6 +14,64 @@ export type AdjustmentKey =
 
 export type AdjustmentValues = Record<AdjustmentKey, number>;
 
+export type CurveChannel = "rgb" | "red" | "green" | "blue";
+export type ToneCurve = Record<CurveChannel, [number, number, number, number, number]>;
+
+export type ColorMixChannel =
+  | "red" | "orange" | "yellow" | "green"
+  | "aqua" | "blue" | "purple" | "magenta";
+
+export interface ColorMixValues {
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+
+export type ColorMix = Record<ColorMixChannel, ColorMixValues>;
+
+export type ColorGradeRange = "shadows" | "midtones" | "highlights" | "global";
+
+export interface ColorGradeWheel {
+  hue: number;
+  saturation: number;
+  luminance: number;
+}
+
+export interface ColorGrading {
+  shadows: ColorGradeWheel;
+  midtones: ColorGradeWheel;
+  highlights: ColorGradeWheel;
+  global: ColorGradeWheel;
+  blending: number;
+  balance: number;
+}
+
+export interface EffectValues {
+  texture: number;
+  clarity: number;
+  dehaze: number;
+  vignette: number;
+  vignetteMidpoint: number;
+  vignetteRoundness: number;
+  vignetteFeather: number;
+  grain: number;
+  grainSize: number;
+  grainRoughness: number;
+}
+
+export interface DetailValues {
+  sharpening: number;
+  sharpeningRadius: number;
+  sharpeningDetail: number;
+  sharpeningMasking: number;
+  luminanceNoise: number;
+  luminanceDetail: number;
+  luminanceContrast: number;
+  colorNoise: number;
+  colorNoiseDetail: number;
+  colorNoiseSmoothness: number;
+}
+
 export interface LinearGradientMask {
   id: string;
   type: "linear-gradient";
@@ -28,6 +86,11 @@ export interface LinearGradientMask {
 
 export interface PhotoEditState {
   adjustments: AdjustmentValues;
+  toneCurve: ToneCurve;
+  colorMix: ColorMix;
+  colorGrading: ColorGrading;
+  effects: EffectValues;
+  detail: DetailValues;
   masks: LinearGradientMask[];
 }
 
@@ -58,7 +121,12 @@ export type HistoryEventType =
   | "mask.created"
   | "mask.geometry.changed"
   | "mask.adjustment.changed"
-  | "mask.deleted";
+  | "mask.deleted"
+  | "curve.changed"
+  | "colorMix.changed"
+  | "colorGrading.changed"
+  | "effect.changed"
+  | "detail.changed";
 
 export interface HistoryEvent {
   id: string;
@@ -70,7 +138,7 @@ export interface HistoryEvent {
   before: PhotoEditState;
   after: PhotoEditState;
   payload: {
-    property?: AdjustmentKey;
+    property?: string;
     previousValue?: number;
     nextValue?: number;
     label?: string;

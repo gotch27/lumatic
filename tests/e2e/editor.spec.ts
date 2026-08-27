@@ -174,3 +174,76 @@ test("draws, edits, restores, and exports a linear gradient mask", async ({ page
   const bottom = await sharp(bottomRegion).stats();
   expect(top.channels[0].mean).toBeLessThan(bottom.channels[0].mean - 20);
 });
+
+test("edits curves, color, effects, and detail through the shared develop workflow", async ({ page }) => {
+  test.setTimeout(60_000);
+  const source = await sharp({
+    create: { width: 800, height: 600, channels: 4, background: { r: 118, g: 132, b: 160, alpha: 1 } },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({ name: "develop-suite.png", mimeType: "image/png", buffer: source });
+  await expect(page.getByTestId("photo-stage")).toBeVisible({ timeout: 20_000 });
+
+  const curveMidpoint = page.getByTestId("curve-point-2");
+  await curveMidpoint.scrollIntoViewIfNeeded();
+  const midpoint = await curveMidpoint.boundingBox();
+  expect(midpoint).not.toBeNull();
+  await page.mouse.move(midpoint!.x + midpoint!.width / 2, midpoint!.y + midpoint!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(midpoint!.x + midpoint!.width / 2, midpoint!.y - 35, { steps: 6 });
+  await page.mouse.up();
+  await expect(curveMidpoint).not.toHaveAttribute("cy", "115");
+
+  await page.getByRole("tab", { name: "Color", exact: true }).click();
+  await page.getByRole("tab", { name: "Blue", exact: true }).click();
+  await page.getByLabel("Blue Saturation value").fill("-30");
+  await page.getByLabel("Blue Saturation value").press("Tab");
+  await page.getByRole("tab", { name: "Highlights", exact: true }).click();
+  await page.getByLabel("highlights Hue value").fill("42");
+  await page.getByLabel("highlights Hue value").press("Tab");
+  await page.getByLabel("highlights Saturation value").fill("25");
+  await page.getByLabel("highlights Saturation value").press("Tab");
+
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
+  await page.getByLabel("Texture value").fill("35");
+  await page.getByLabel("Texture value").press("Escape");
+  await expect(page.getByLabel("Texture value")).toHaveValue("0");
+  for (const [label, value] of [["Clarity", "25"], ["Dehaze", "20"], ["Vignette", "-55"], ["Grain", "24"]] as const) {
+    await page.getByLabel(`${label} value`).fill(value);
+    await page.getByLabel(`${label} value`).press("Tab");
+  }
+  await page.getByRole("tab", { name: "Detail", exact: true }).click();
+  for (const [label, value] of [["Sharpening", "40"], ["Noise Reduction", "15"], ["Color Noise Reduction", "25"]] as const) {
+    await page.getByLabel(`${label} value`, { exact: true }).fill(value);
+    await page.getByLabel(`${label} value`, { exact: true }).press("Tab");
+  }
+
+  await page.getByRole("tab", { name: /History/ }).click();
+  const history = page.getByTestId("history-panel");
+  await expect(history).toContainText("RGB curve");
+  await expect(history).toContainText("Blue saturation");
+  await expect(history).toContainText("Highlights hue");
+  await expect(history).toContainText("Vignette");
+  await expect(history).toContainText("Sharpening");
+
+  await page.reload();
+  await page.getByRole("tab", { name: /Adjust/ }).click();
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
+  await expect(page.getByLabel("Vignette value")).toHaveValue("-55");
+  await expect(page.getByLabel("Grain value")).toHaveValue("24");
+  await page.getByRole("tab", { name: "Detail", exact: true }).click();
+  await expect(page.getByLabel("Sharpening value")).toHaveValue("40");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const cornerBuffer = await sharp(path!).extract({ left: 0, top: 0, width: 100, height: 100 }).png().toBuffer();
+  const centerBuffer = await sharp(path!).extract({ left: 350, top: 250, width: 100, height: 100 }).png().toBuffer();
+  const corner = await sharp(cornerBuffer).stats();
+  const center = await sharp(centerBuffer).stats();
+  expect(corner.channels[0].mean).toBeLessThan(center.channels[0].mean - 10);
+  expect(center.channels[0].stdev).toBeGreaterThan(1);
+});

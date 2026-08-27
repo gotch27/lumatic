@@ -4,6 +4,7 @@ import type {
   AdjustmentKey,
   HistoryEvent,
   LinearGradientMask,
+  PhotoEditState,
   RuntimePhoto,
   SaveStatus,
 } from "@/editor/domain/types";
@@ -11,7 +12,8 @@ import type {
 export type EditorDraft =
   | { kind: "global-adjustment"; photoId: string; key: AdjustmentKey; baselineValue: number }
   | { kind: "mask-adjustment"; photoId: string; maskId: string; key: AdjustmentKey; baselineValue: number }
-  | { kind: "mask-geometry"; photoId: string; maskId: string; baseline: LinearGradientMask | null };
+  | { kind: "mask-geometry"; photoId: string; maskId: string; baseline: LinearGradientMask | null }
+  | { kind: "develop-setting"; photoId: string; target: string; baseline: PhotoEditState };
 
 export interface Notice {
   id: string;

@@ -8,6 +8,10 @@ Built for OpenAI's [WebMCP Challenge](https://openai.com/webmcp-challenge/). Thi
 
 - Multi-image JPEG and PNG import with editing previews and thumbnails
 - Exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, and vibrance
+- Five-point RGB, red, green, and blue tone curves
+- Eight-channel HSL Color Mix and four-way Color Grading with hue, saturation, luminance, blending, and balance
+- Texture, clarity, dehaze, post-crop vignette controls, and adjustable grain
+- Sharpening, luminance noise reduction, and color noise reduction with detail controls
 - Human-drawn linear gradients with normalized geometry, feathering, and the same ten local adjustments
 - Select, move, resize, reset, and delete gradients directly on the photo
 - PixiJS/WebGL preview with fit, 100%, zoom, and pan controls
@@ -40,7 +44,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-The end-to-end suite covers mixed valid/corrupt imports, global and gradient history, undo/redo, refresh restoration, spatially correct gradient export, library clearing, and a 6000×4000 tiled export.
+The end-to-end suite covers mixed valid/corrupt imports, curves, color tools, effects, detail, global and gradient history, undo/redo, refresh restoration, spatially correct exports, library clearing, and a 6000×4000 tiled export.
 
 ## Architecture
 
@@ -80,7 +84,7 @@ No environment variables, API routes, databases, or storage services are require
 
 ## Deferred
 
-WebMCP, agents, radial masks, subject/sky segmentation, crop/rotation, tone curves, RAW/HEIC, batch export, named projects, cloud sync, accounts, and production color-management profiles.
+WebMCP, agents, radial masks, subject/sky segmentation, crop/rotation, RAW/HEIC, batch export, named projects, cloud sync, accounts, and production color-management profiles.
 
 ## License
 

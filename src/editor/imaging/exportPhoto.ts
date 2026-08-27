@@ -1,10 +1,11 @@
 import { Application, Sprite, Texture } from "pixi.js";
 
 import type { RuntimePhoto } from "@/editor/domain/types";
-import { createAdjustmentFilter, setFilterImageRegion } from "@/editor/renderer/adjustmentShader";
+import { createAdjustmentFilter, setFilterImageRegion, setFilterImageSize } from "@/editor/renderer/adjustmentShader";
 import { getOriginalAsset } from "@/editor/persistence/repository";
 
-const TILE_EDGE = 4096;
+const TILE_EDGE = 4088;
+const FILTER_PADDING = 4;
 
 function canvasToBlob(canvas: HTMLCanvasElement, photo: RuntimePhoto): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -65,6 +66,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
     preserveDrawingBuffer: true,
   });
   const filter = createAdjustmentFilter(photo.editState);
+  setFilterImageSize(filter, photo.width, photo.height);
 
   try {
     let completed = 0;
@@ -77,21 +79,29 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
         const height = Math.min(TILE_EDGE, photo.height - y);
         options.onProgress?.(completed / totalTiles, `Rendering tile ${completed + 1} of ${totalTiles}`);
 
-        const bitmap = await createImageBitmap(original, x, y, width, height);
+        const sourceX = Math.max(0, x - FILTER_PADDING);
+        const sourceY = Math.max(0, y - FILTER_PADDING);
+        const sourceRight = Math.min(photo.width, x + width + FILTER_PADDING);
+        const sourceBottom = Math.min(photo.height, y + height + FILTER_PADDING);
+        const sourceWidth = sourceRight - sourceX;
+        const sourceHeight = sourceBottom - sourceY;
+        const cropX = x - sourceX;
+        const cropY = y - sourceY;
+        const bitmap = await createImageBitmap(original, sourceX, sourceY, sourceWidth, sourceHeight);
         const texture = Texture.from(bitmap);
         const sprite = new Sprite(texture);
         sprite.filters = [filter];
         setFilterImageRegion(
           filter,
-          x / photo.width,
-          y / photo.height,
-          width / photo.width,
-          height / photo.height,
+          sourceX / photo.width,
+          sourceY / photo.height,
+          sourceWidth / photo.width,
+          sourceHeight / photo.height,
         );
-        application.renderer.resize(width, height);
+        application.renderer.resize(sourceWidth, sourceHeight);
         application.stage.addChild(sprite);
         application.render();
-        outputContext.drawImage(application.canvas, 0, 0, width, height, x, y, width, height);
+        outputContext.drawImage(application.canvas, cropX, cropY, width, height, x, y, width, height);
         application.stage.removeChild(sprite);
         sprite.destroy();
         texture.destroy(true);

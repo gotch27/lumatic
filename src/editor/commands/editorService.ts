@@ -12,9 +12,26 @@ import {
   sameGradientGeometry,
   type LinearGradientGeometry,
 } from "@/editor/domain/masks";
+import {
+  COLOR_MIX_PROPERTIES,
+  DETAIL_DEFINITIONS,
+  EFFECT_DEFINITIONS,
+  clampDevelopValue,
+  createDefaultColorGrading,
+  createDefaultColorMix,
+  createDefaultDetail,
+  createDefaultEffects,
+  createDefaultToneCurve,
+  normalizeCurveValues,
+} from "@/editor/domain/developSettings";
 import type {
   Actor,
   AdjustmentKey,
+  ColorGradeRange,
+  ColorMixChannel,
+  CurveChannel,
+  DetailValues,
+  EffectValues,
   HistoryEvent,
   HistoryEventType,
   LinearGradientMask,
@@ -37,8 +54,10 @@ import { initialEditorState, selectedPhotoFromState, useEditorStore } from "@/ed
 import { createId } from "@/lib/id";
 import {
   adjustmentCommandSchema,
+  developSettingCommandSchema,
   linearGradientGeometrySchema,
   maskAdjustmentCommandSchema,
+  toneCurveCommandSchema,
 } from "@/validation/schemas";
 
 let hydrationPromise: Promise<void> | null = null;
@@ -106,10 +125,9 @@ function replaceMask(
   maskId: string,
   update: (mask: LinearGradientMask) => LinearGradientMask,
 ): PhotoEditState {
-  return {
-    adjustments: { ...editState.adjustments },
-    masks: editState.masks.map((mask) => (mask.id === maskId ? update(mask) : cloneMask(mask))),
-  };
+  const next = cloneEditState(editState);
+  next.masks = editState.masks.map((mask) => (mask.id === maskId ? update(cloneMask(mask)) : cloneMask(mask)));
+  return next;
 }
 
 function commitEvent(
@@ -290,6 +308,267 @@ function commitAdjustment(photoId: string, key: AdjustmentKey, value: number, ac
     previousValue: baselineValue,
     nextValue,
   }, parsed.actor);
+}
+
+function previewDevelopState(
+  photoId: string,
+  target: string,
+  mutate: (editState: PhotoEditState) => void,
+): void {
+  let state = useEditorStore.getState();
+  if (state.draft && !(state.draft.kind === "develop-setting"
+    && state.draft.photoId === photoId
+    && state.draft.target === target)) {
+    cancelAdjustment();
+    state = useEditorStore.getState();
+  }
+  const photo = state.photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const draft = state.draft?.kind === "develop-setting"
+    && state.draft.photoId === photoId
+    && state.draft.target === target
+    ? state.draft
+    : { kind: "develop-setting" as const, photoId, target, baseline: cloneEditState(photo.editState) };
+  useEditorStore.setState({ draft });
+  replacePhoto(photoId, (current) => {
+    const editState = cloneEditState(current.editState);
+    mutate(editState);
+    return { ...current, editState };
+  });
+}
+
+function commitDevelopState(
+  photoId: string,
+  target: string,
+  type: HistoryEventType,
+  payload: HistoryEvent["payload"],
+  actor: Actor,
+): void {
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const before = state.draft?.kind === "develop-setting"
+    && state.draft.photoId === photoId
+    && state.draft.target === target
+    ? state.draft.baseline
+    : cloneEditState(photo.editState);
+  const after = cloneEditState(photo.editState);
+  if (JSON.stringify(before) === JSON.stringify(after)) {
+    useEditorStore.setState({ draft: null });
+    return;
+  }
+  commitEvent(photoId, before, after, type, payload, actor);
+}
+
+function previewToneCurve(photoId: string, channel: CurveChannel, values: readonly number[]): void {
+  const parsed = toneCurveCommandSchema.parse({ photoId, channel, values: normalizeCurveValues(values), actor: "user" });
+  const target = `curve.${channel}`;
+  previewDevelopState(photoId, target, (editState) => {
+    editState.toneCurve[channel] = normalizeCurveValues(parsed.values);
+  });
+}
+
+function commitToneCurve(
+  photoId: string,
+  channel: CurveChannel,
+  values: readonly number[],
+  actor: Actor = "user",
+): void {
+  const parsed = toneCurveCommandSchema.parse({ photoId, channel, values: normalizeCurveValues(values), actor });
+  const target = `curve.${channel}`;
+  previewToneCurve(photoId, channel, parsed.values);
+  commitDevelopState(photoId, target, "curve.changed", {
+    property: channel,
+    label: `${channel === "rgb" ? "RGB" : channel[0].toUpperCase() + channel.slice(1)} curve`,
+  }, parsed.actor);
+}
+
+function previewColorMix(
+  photoId: string,
+  channel: ColorMixChannel,
+  property: "hue" | "saturation" | "luminance",
+  value: number,
+): void {
+  const definition = COLOR_MIX_PROPERTIES.find((item) => item.key === property)!;
+  const nextValue = clampDevelopValue(definition, value);
+  const target = `colorMix.${channel}.${property}`;
+  developSettingCommandSchema.parse({ photoId, target, value: nextValue, actor: "user" });
+  previewDevelopState(photoId, target, (editState) => {
+    editState.colorMix[channel][property] = nextValue;
+  });
+}
+
+function commitColorMix(
+  photoId: string,
+  channel: ColorMixChannel,
+  property: "hue" | "saturation" | "luminance",
+  value: number,
+  actor: Actor = "user",
+): void {
+  const target = `colorMix.${channel}.${property}`;
+  const parsed = developSettingCommandSchema.parse({ photoId, target, value, actor });
+  previewColorMix(photoId, channel, property, parsed.value);
+  commitDevelopState(photoId, target, "colorMix.changed", {
+    property: target,
+    nextValue: parsed.value,
+    label: `${channel[0].toUpperCase() + channel.slice(1)} ${property}`,
+  }, parsed.actor);
+}
+
+type GradeProperty = "hue" | "saturation" | "luminance";
+
+function previewColorGrade(
+  photoId: string,
+  range: ColorGradeRange,
+  property: GradeProperty,
+  value: number,
+): void {
+  const min = property === "hue" ? 0 : property === "saturation" ? 0 : -100;
+  const max = property === "hue" ? 360 : 100;
+  const nextValue = Number(Math.min(max, Math.max(min, value)).toFixed(0));
+  const target = `colorGrading.${range}.${property}`;
+  developSettingCommandSchema.parse({ photoId, target, value: nextValue, actor: "user" });
+  previewDevelopState(photoId, target, (editState) => {
+    editState.colorGrading[range][property] = nextValue;
+  });
+}
+
+function commitColorGrade(
+  photoId: string,
+  range: ColorGradeRange,
+  property: GradeProperty,
+  value: number,
+  actor: Actor = "user",
+): void {
+  const target = `colorGrading.${range}.${property}`;
+  const parsed = developSettingCommandSchema.parse({ photoId, target, value, actor });
+  previewColorGrade(photoId, range, property, parsed.value);
+  commitDevelopState(photoId, target, "colorGrading.changed", {
+    property: target,
+    nextValue: parsed.value,
+    label: `${range[0].toUpperCase() + range.slice(1)} ${property}`,
+  }, parsed.actor);
+}
+
+function previewColorGradeWheel(photoId: string, range: ColorGradeRange, hue: number, saturation: number): void {
+  const nextHue = Number(Math.min(360, Math.max(0, hue)).toFixed(0));
+  const nextSaturation = Number(Math.min(100, Math.max(0, saturation)).toFixed(0));
+  const target = `colorGrading.${range}.wheel`;
+  previewDevelopState(photoId, target, (editState) => {
+    editState.colorGrading[range].hue = nextHue;
+    editState.colorGrading[range].saturation = nextSaturation;
+  });
+}
+
+function commitColorGradeWheel(
+  photoId: string,
+  range: ColorGradeRange,
+  hue: number,
+  saturation: number,
+  actor: Actor = "user",
+): void {
+  const target = `colorGrading.${range}.wheel`;
+  previewColorGradeWheel(photoId, range, hue, saturation);
+  commitDevelopState(photoId, target, "colorGrading.changed", {
+    property: target,
+    label: `${range[0].toUpperCase() + range.slice(1)} color wheel`,
+  }, actor);
+}
+
+function previewColorGradeMaster(photoId: string, property: "blending" | "balance", value: number): void {
+  const min = property === "blending" ? 0 : -100;
+  const nextValue = Number(Math.min(100, Math.max(min, value)).toFixed(0));
+  const target = `colorGrading.${property}`;
+  previewDevelopState(photoId, target, (editState) => {
+    editState.colorGrading[property] = nextValue;
+  });
+}
+
+function commitColorGradeMaster(
+  photoId: string,
+  property: "blending" | "balance",
+  value: number,
+  actor: Actor = "user",
+): void {
+  const target = `colorGrading.${property}`;
+  const parsed = developSettingCommandSchema.parse({ photoId, target, value, actor });
+  previewColorGradeMaster(photoId, property, parsed.value);
+  commitDevelopState(photoId, target, "colorGrading.changed", {
+    property: target,
+    nextValue: parsed.value,
+    label: `Color grading ${property}`,
+  }, parsed.actor);
+}
+
+function previewEffect(photoId: string, key: keyof EffectValues, value: number): void {
+  const definition = EFFECT_DEFINITIONS.find((item) => item.key === key)!;
+  const nextValue = clampDevelopValue(definition, value);
+  const target = `effects.${key}`;
+  previewDevelopState(photoId, target, (editState) => {
+    editState.effects[key] = nextValue;
+  });
+}
+
+function commitEffect(photoId: string, key: keyof EffectValues, value: number, actor: Actor = "user"): void {
+  const definition = EFFECT_DEFINITIONS.find((item) => item.key === key)!;
+  const nextValue = clampDevelopValue(definition, value);
+  const target = `effects.${key}`;
+  const parsed = developSettingCommandSchema.parse({ photoId, target, value: nextValue, actor });
+  previewEffect(photoId, key, parsed.value);
+  commitDevelopState(photoId, target, "effect.changed", {
+    property: key,
+    nextValue,
+    label: definition.label,
+  }, parsed.actor);
+}
+
+function previewDetail(photoId: string, key: keyof DetailValues, value: number): void {
+  const definition = DETAIL_DEFINITIONS.find((item) => item.key === key)!;
+  const nextValue = clampDevelopValue(definition, value);
+  const target = `detail.${key}`;
+  previewDevelopState(photoId, target, (editState) => {
+    editState.detail[key] = nextValue;
+  });
+}
+
+function commitDetail(photoId: string, key: keyof DetailValues, value: number, actor: Actor = "user"): void {
+  const definition = DETAIL_DEFINITIONS.find((item) => item.key === key)!;
+  const nextValue = clampDevelopValue(definition, value);
+  const target = `detail.${key}`;
+  const parsed = developSettingCommandSchema.parse({ photoId, target, value: nextValue, actor });
+  previewDetail(photoId, key, parsed.value);
+  commitDevelopState(photoId, target, "detail.changed", {
+    property: key,
+    nextValue,
+    label: definition.label,
+  }, parsed.actor);
+}
+
+type DevelopGroup = "toneCurve" | "colorMix" | "colorGrading" | "effects" | "detail";
+
+function resetDevelopGroup(photoId: string, group: DevelopGroup): void {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const before = cloneEditState(photo.editState);
+  const after = cloneEditState(photo.editState);
+  const defaults = {
+    toneCurve: createDefaultToneCurve,
+    colorMix: createDefaultColorMix,
+    colorGrading: createDefaultColorGrading,
+    effects: createDefaultEffects,
+    detail: createDefaultDetail,
+  }[group]();
+  (after[group] as typeof defaults) = defaults;
+  if (JSON.stringify(before[group]) === JSON.stringify(defaults)) return;
+  const eventType: Record<DevelopGroup, HistoryEventType> = {
+    toneCurve: "curve.changed",
+    colorMix: "colorMix.changed",
+    colorGrading: "colorGrading.changed",
+    effects: "effect.changed",
+    detail: "detail.changed",
+  };
+  commitEvent(photoId, before, after, eventType[group], { label: `Reset ${group}` }, "user");
 }
 
 function beginLinearGradient(photoId: string, startX: number, startY: number): string | null {
@@ -490,7 +769,7 @@ function cancelAdjustment(): void {
         adjustments: { ...mask.adjustments, [draft.key]: draft.baselineValue },
       })),
     }));
-  } else {
+  } else if (draft.kind === "mask-geometry") {
     replacePhoto(draft.photoId, (photo) => ({
       ...photo,
       editState: draft.baseline
@@ -500,6 +779,8 @@ function cancelAdjustment(): void {
             masks: photo.editState.masks.filter((mask) => mask.id !== draft.maskId),
           },
     }));
+  } else {
+    replacePhoto(draft.photoId, (photo) => ({ ...photo, editState: cloneEditState(draft.baseline) }));
   }
   useEditorStore.setState({ draft: null, maskToolMode: "idle" });
 }
@@ -611,6 +892,21 @@ export const editorService = {
   importFiles,
   previewAdjustment,
   commitAdjustment,
+  previewToneCurve,
+  commitToneCurve,
+  previewColorMix,
+  commitColorMix,
+  previewColorGrade,
+  commitColorGrade,
+  previewColorGradeWheel,
+  commitColorGradeWheel,
+  previewColorGradeMaster,
+  commitColorGradeMaster,
+  previewEffect,
+  commitEffect,
+  previewDetail,
+  commitDetail,
+  resetDevelopGroup,
   beginLinearGradient,
   previewLinearGradientGeometry,
   commitLinearGradientGeometry,

@@ -1,8 +1,12 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
-import { useMemo } from "react";
+import { Aperture, Palette, RotateCcw, ScanLine, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
 
+import { ColorTools } from "./ColorTools";
+import { DetailPanel } from "./DetailPanel";
+import { EffectsPanel } from "./EffectsPanel";
+import { ToneCurveEditor } from "./ToneCurveEditor";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { editorService } from "@/editor/commands/editorService";
@@ -51,8 +55,9 @@ function AdjustmentControl({ photo, definition }: { photo: RuntimePhoto; definit
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();
               if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
                 editorService.cancelAdjustment();
-                event.currentTarget.blur();
               }
             }}
             step={definition.step}
@@ -75,6 +80,7 @@ function AdjustmentControl({ photo, definition }: { photo: RuntimePhoto; definit
 }
 
 export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
+  const [section, setSection] = useState<"light" | "color" | "effects" | "detail">("light");
   const groups = useMemo(
     () => ({
       light: ADJUSTMENT_DEFINITIONS.filter((item) => item.group === "light"),
@@ -85,31 +91,36 @@ export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
 
   return (
     <div className="panel-scroll" data-testid="adjustments-panel">
-      <section className="panel-section">
-        <div className="panel-section-heading">
-          <span>Light</span>
-          <span className="text-[10px] font-normal tracking-normal text-zinc-600">Global</span>
-        </div>
-        <div className="space-y-3.5">
-          {groups.light.map((definition) => (
-            <AdjustmentControl key={definition.key} definition={definition} photo={photo} />
-          ))}
-        </div>
-      </section>
-      <section className="panel-section border-t border-white/[0.06]">
-        <div className="panel-section-heading">Color</div>
-        <div className="space-y-3.5">
-          {groups.color.map((definition) => (
-            <AdjustmentControl key={definition.key} definition={definition} photo={photo} />
-          ))}
-        </div>
-      </section>
-      <div className="px-4 pb-5">
-        <Button className="w-full" onClick={() => editorService.resetAll(photo.id)} size="sm" variant="secondary">
-          <RotateCcw className="size-3.5" />
-          Reset all adjustments
-        </Button>
+      <div className="develop-section-tabs" role="tablist" aria-label="Develop tools">
+        {([
+          ["light", "Light", Aperture],
+          ["color", "Color", Palette],
+          ["effects", "Effects", Sparkles],
+          ["detail", "Detail", ScanLine],
+        ] as const).map(([key, label, Icon]) => (
+          <button aria-selected={section === key} className={section === key ? "is-active" : ""} key={key} onClick={() => setSection(key)} role="tab" type="button"><Icon className="size-3" />{label}</button>
+        ))}
       </div>
+      {section === "light" && <>
+        <section className="panel-section">
+          <div className="panel-section-heading"><span>Light</span><span className="text-[10px] font-normal tracking-normal text-zinc-600">Global</span></div>
+          <div className="space-y-3.5">{groups.light.map((definition) => <AdjustmentControl key={definition.key} definition={definition} photo={photo} />)}</div>
+        </section>
+        <section className="panel-section border-t border-white/[0.06]">
+          <div className="panel-section-heading"><span>Curve</span><span className="text-[10px] font-normal text-zinc-600">Point curve</span></div>
+          <ToneCurveEditor photo={photo} />
+        </section>
+        <div className="px-4 pb-5"><Button className="w-full" onClick={() => editorService.resetAll(photo.id)} size="sm" variant="secondary"><RotateCcw className="size-3.5" /> Reset basic adjustments</Button></div>
+      </>}
+      {section === "color" && <>
+        <section className="panel-section">
+          <div className="panel-section-heading"><span>Color</span><span className="text-[10px] font-normal text-zinc-600">Global</span></div>
+          <div className="space-y-3.5">{groups.color.map((definition) => <AdjustmentControl key={definition.key} definition={definition} photo={photo} />)}</div>
+        </section>
+        <ColorTools photo={photo} />
+      </>}
+      {section === "effects" && <EffectsPanel photo={photo} />}
+      {section === "detail" && <DetailPanel photo={photo} />}
     </div>
   );
 }

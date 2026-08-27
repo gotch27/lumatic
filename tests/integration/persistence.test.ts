@@ -33,6 +33,8 @@ describe("local workspace persistence", () => {
     await saveImportedPhoto(photo, assets, photo.id);
 
     const after = { ...createDefaultAdjustments(), exposure: 1.2 };
+    const afterState = createDefaultEditState();
+    afterState.adjustments = after;
     const event: HistoryEvent = {
       id: "event-a",
       photoId: photo.id,
@@ -41,7 +43,7 @@ describe("local workspace persistence", () => {
       timestamp: 2,
       type: "adjustment.changed",
       before: createDefaultEditState(),
-      after: { adjustments: after, masks: [] },
+      after: afterState,
       payload: { property: "exposure", previousValue: 0, nextValue: 1.2 },
     };
     await saveEdit({ ...photo, editState: event.after, historyCursor: 1 }, event, null);
@@ -104,6 +106,42 @@ describe("local workspace persistence", () => {
       startY: 0.05,
       endY: 0.4,
       adjustments: { exposure: -0.7 },
+    });
+  });
+
+  it("persists curve, color, effects, and detail settings together", async () => {
+    const state = createDefaultEditState();
+    state.toneCurve.rgb = [0, 0.2, 0.58, 0.84, 1];
+    state.colorMix.orange.luminance = 18;
+    state.colorGrading.highlights = { hue: 42, saturation: 24, luminance: 5 };
+    state.effects.grain = 30;
+    state.detail.colorNoise = 35;
+    const photo: PhotoRecord = {
+      id: "develop-photo",
+      order: 0,
+      name: "develop.png",
+      mimeType: "image/png",
+      size: 3,
+      width: 10,
+      height: 10,
+      createdAt: 1,
+      updatedAt: 1,
+      editState: state,
+      historyCursor: 0,
+    };
+    await saveImportedPhoto(photo, {
+      photoId: photo.id,
+      original: new Blob(["a"]),
+      preview: new Blob(["b"]),
+      thumbnail: new Blob(["c"]),
+    }, photo.id);
+    const restored = await loadWorkspace();
+    expect(restored.photos[0].editState).toMatchObject({
+      toneCurve: { rgb: [0, 0.2, 0.58, 0.84, 1] },
+      colorMix: { orange: { luminance: 18 } },
+      colorGrading: { highlights: { hue: 42, saturation: 24, luminance: 5 } },
+      effects: { grain: 30 },
+      detail: { colorNoise: 35 },
     });
   });
 });
