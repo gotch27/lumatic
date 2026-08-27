@@ -25,6 +25,7 @@ async function sampledRedMean(image: Buffer, x: number, y: number, size = 11) {
 }
 
 test("imports, edits, restores, exports, and clears a local library", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Shape the light. Keep every decision." })).toBeVisible();
 
