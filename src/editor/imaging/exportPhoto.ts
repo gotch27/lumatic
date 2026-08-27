@@ -1,7 +1,12 @@
 import { Application, Sprite, Texture } from "pixi.js";
 
 import type { RuntimePhoto } from "@/editor/domain/types";
-import { createAdjustmentFilter, setFilterImageRegion, setFilterImageSize } from "@/editor/renderer/adjustmentShader";
+import {
+  createAdjustmentFilter,
+  setFilterImageRegion,
+  setFilterImageSprite,
+  setFilterImageSize,
+} from "@/editor/renderer/adjustmentShader";
 import { getOriginalAsset } from "@/editor/persistence/repository";
 
 const TILE_EDGE = 4088;
@@ -91,6 +96,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
         const texture = Texture.from(bitmap);
         const sprite = new Sprite(texture);
         sprite.filters = [filter];
+        setFilterImageSprite(filter, sprite);
         setFilterImageRegion(
           filter,
           sourceX / photo.width,

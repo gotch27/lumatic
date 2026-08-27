@@ -1,4 +1,4 @@
-import { Filter, GlProgram } from "pixi.js";
+import { Filter, GlProgram, Matrix, type Sprite } from "pixi.js";
 
 import { MAX_LINEAR_GRADIENTS } from "@/editor/domain/masks";
 import { COLOR_GRADE_RANGES, COLOR_MIX_CHANNELS, CURVE_CHANNELS } from "@/editor/domain/developSettings";
@@ -8,9 +8,11 @@ const vertex = `
   precision highp float;
   in vec2 aPosition;
   out vec2 vTextureCoord;
+  out vec2 vImageUv;
   uniform vec4 uInputSize;
   uniform vec4 uOutputFrame;
   uniform vec4 uOutputTexture;
+  uniform mat3 uImageMatrix;
 
   vec4 filterVertexPosition(void) {
     vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;
@@ -24,8 +26,10 @@ const vertex = `
   }
 
   void main(void) {
+    vec2 textureCoord = filterTextureCoord();
     gl_Position = filterVertexPosition();
-    vTextureCoord = filterTextureCoord();
+    vTextureCoord = textureCoord;
+    vImageUv = (uImageMatrix * vec3(textureCoord, 1.0)).xy;
   }
 `;
 
@@ -101,6 +105,7 @@ const gradeUniforms = COLOR_GRADE_RANGES.map(({ key }) => {
 const fragment = `
   precision highp float;
   in vec2 vTextureCoord;
+  in vec2 vImageUv;
   out vec4 finalColor;
   uniform sampler2D uTexture;
   ${adjustmentUniformDeclarations("u")}
@@ -297,12 +302,17 @@ const fragment = `
   }
 
   float linearGradientWeight(vec2 uv, vec2 startPoint, vec2 endPoint, float feather) {
+    vec2 imageSize = vec2(uImageWidth, uImageHeight);
+    uv *= imageSize;
+    startPoint *= imageSize;
+    endPoint *= imageSize;
     vec2 direction = endPoint - startPoint;
     float lengthSquared = dot(direction, direction);
     if (lengthSquared < 0.000001) return 0.0;
     float position = dot(uv - startPoint, direction) / lengthSquared;
-    float halfWidth = max(0.02, feather * 0.5);
-    return 1.0 - smoothstep(0.5 - halfWidth, 0.5 + halfWidth, position);
+    float hardTransition = step(0.5, position);
+    float softTransition = smoothstep(0.0, 1.0, position);
+    return 1.0 - mix(hardTransition, softTransition, clamp(feather, 0.0, 1.0));
   }
 
   void main(void) {
@@ -334,7 +344,7 @@ const fragment = `
     color = applyToneCurves(color);
     color = applyColorMix(color);
     color = applyColorGrading(color);
-    vec2 localUv = vTextureCoord;
+    vec2 localUv = vImageUv;
     vec2 imageUv = vec2(uImageUvOffsetX, uImageUvOffsetY)
       + localUv * vec2(uImageUvScaleX, uImageUvScaleY);
     ${maskApplications}
@@ -367,9 +377,15 @@ const fragment = `
 `;
 
 export type AdjustmentFilter = Filter & {
+  imageSprite: Sprite | null;
   resources: {
     adjustmentUniforms: {
       uniforms: Record<string, number>;
+    };
+    imageUniforms: {
+      uniforms: {
+        uImageMatrix: Matrix;
+      };
     };
   };
 };
@@ -477,10 +493,27 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     resources[`${prefix}Feather`] = { value: mask?.feather ?? 0, type: "f32" };
     Object.assign(resources, defineAdjustmentUniforms(prefix, mask?.adjustments ?? editState.adjustments));
   }
-  return new Filter({
+  const filter = new Filter({
     glProgram: GlProgram.from({ vertex, fragment, name: "lumatic-adjustment-filter" }),
-    resources: { adjustmentUniforms: resources },
+    resources: {
+      adjustmentUniforms: resources,
+      imageUniforms: {
+        uImageMatrix: { value: new Matrix(), type: "mat3x3<f32>" },
+      },
+    },
   }) as AdjustmentFilter;
+  filter.imageSprite = null;
+  const applyFilter = filter.apply.bind(filter);
+  filter.apply = (filterManager, input, output, clearMode) => {
+    if (filter.imageSprite) {
+      filterManager.calculateSpriteMatrix(
+        filter.resources.imageUniforms.uniforms.uImageMatrix,
+        filter.imageSprite,
+      );
+    }
+    applyFilter(filterManager, input, output, clearMode);
+  };
+  return filter;
 }
 
 export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEditState): void {
@@ -504,6 +537,10 @@ export function setFilterImageSize(filter: AdjustmentFilter, width: number, heig
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   uniforms.uImageWidth = Math.max(1, width);
   uniforms.uImageHeight = Math.max(1, height);
+}
+
+export function setFilterImageSprite(filter: AdjustmentFilter, sprite: Sprite): void {
+  filter.imageSprite = sprite;
 }
 
 export function setFilterImageRegion(

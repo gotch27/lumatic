@@ -14,6 +14,16 @@ async function pngFixture(width = 1200, height = 800) {
     .toBuffer();
 }
 
+async function sampledRedMean(image: Buffer, x: number, y: number, size = 11) {
+  const half = Math.floor(size / 2);
+  const sample = await sharp(image)
+    .extract({ left: Math.round(x) - half, top: Math.round(y) - half, width: size, height: size })
+    .png()
+    .toBuffer();
+  const stats = await sharp(sample).stats();
+  return stats.channels[0].mean;
+}
+
 test("imports, edits, restores, exports, and clears a local library", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Shape the light. Keep every decision." })).toBeVisible();
@@ -246,4 +256,103 @@ test("edits curves, color, effects, and detail through the shared develop workfl
   const center = await sharp(centerBuffer).stats();
   expect(corner.channels[0].mean).toBeLessThan(center.channels[0].mean - 10);
   expect(center.channels[0].stdev).toBeGreaterThan(1);
+});
+
+test("keeps vignette and linear gradients locked to image space while panning", async ({ page }) => {
+  test.setTimeout(60_000);
+  const width = 1200;
+  const height = 600;
+  const source = await sharp({
+    create: { width, height, channels: 4, background: { r: 170, g: 170, b: 170, alpha: 1 } },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({ name: "spatial-source.png", mimeType: "image/png", buffer: source });
+  const stage = page.getByTestId("photo-stage");
+  await expect(stage).toBeVisible({ timeout: 20_000 });
+  const stageBox = await stage.boundingBox();
+  expect(stageBox).not.toBeNull();
+
+  const scale = Math.min((stageBox!.width - 56) / width, (stageBox!.height - 56) / height, 1);
+  const imageWidth = width * scale;
+  const imageHeight = height * scale;
+  const imageLeft = (stageBox!.width - imageWidth) / 2;
+  const imageTop = (stageBox!.height - imageHeight) / 2;
+  const center = { x: imageLeft + imageWidth / 2, y: imageTop + imageHeight / 2 };
+  const corner = { x: imageLeft + 35, y: imageTop + 35 };
+
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
+  await page.getByLabel("Vignette value").fill("-80");
+  await page.getByLabel("Vignette value").press("Tab");
+  const vignetteBefore = await stage.screenshot();
+  const centerBefore = await sampledRedMean(vignetteBefore, center.x, center.y);
+  const cornerBefore = await sampledRedMean(vignetteBefore, corner.x, corner.y);
+  expect(centerBefore).toBeGreaterThan(cornerBefore + 25);
+
+  const pan = { x: 150, y: 55 };
+  await page.mouse.move(stageBox!.x + center.x, stageBox!.y + center.y);
+  await page.mouse.down();
+  await page.mouse.move(stageBox!.x + center.x + pan.x, stageBox!.y + center.y + pan.y, { steps: 8 });
+  await page.mouse.up();
+  const vignetteAfter = await stage.screenshot();
+  const centerAfter = await sampledRedMean(vignetteAfter, center.x + pan.x, center.y + pan.y);
+  const cornerAfter = await sampledRedMean(vignetteAfter, corner.x + pan.x, corner.y + pan.y);
+  expect(Math.abs(centerAfter - centerBefore)).toBeLessThan(3);
+  expect(Math.abs(cornerAfter - cornerBefore)).toBeLessThan(3);
+
+  await page.getByRole("button", { name: "Fit photo" }).click();
+  await page.getByLabel("Vignette value").fill("0");
+  await page.getByLabel("Vignette value").press("Tab");
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Draw linear gradient" }).click();
+  const start = { x: imageLeft + imageWidth * 0.25, y: imageTop + imageHeight * 0.25 };
+  const end = { x: imageLeft + imageWidth * 0.75, y: imageTop + imageHeight * 0.75 };
+  await page.mouse.move(stageBox!.x + start.x, stageBox!.y + start.y);
+  await page.mouse.down();
+  await page.mouse.move(stageBox!.x + end.x, stageBox!.y + end.y, { steps: 8 });
+  await page.mouse.up();
+  await page.getByLabel("Mask Exposure value").fill("-2");
+  await page.getByLabel("Mask Exposure value").press("Tab");
+
+  await page.addStyleTag({ content: ".gradient-overlay { visibility: hidden !important; }" });
+  const gradient = await stage.screenshot();
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  const direction = { x: dx / length, y: dy / length };
+  const normal = { x: -direction.y, y: direction.x };
+  const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  const darkPoint = { x: start.x - direction.x * 45, y: start.y - direction.y * 45 };
+  const lightPoint = { x: end.x + direction.x * 45, y: end.y + direction.y * 45 };
+  const parallelA = { x: midpoint.x + normal.x * 85, y: midpoint.y + normal.y * 85 };
+  const parallelB = { x: midpoint.x - normal.x * 85, y: midpoint.y - normal.y * 85 };
+  const dark = await sampledRedMean(gradient, darkPoint.x, darkPoint.y);
+  const light = await sampledRedMean(gradient, lightPoint.x, lightPoint.y);
+  const sameProjectionA = await sampledRedMean(gradient, parallelA.x, parallelA.y);
+  const sameProjectionB = await sampledRedMean(gradient, parallelB.x, parallelB.y);
+  expect(dark).toBeLessThan(light - 45);
+  expect(Math.abs(sameProjectionA - sameProjectionB)).toBeLessThan(3);
+
+  const gradientPan = { x: 105, y: -35 };
+  await page.mouse.move(stageBox!.x + midpoint.x, stageBox!.y + midpoint.y);
+  await page.mouse.down();
+  await page.mouse.move(
+    stageBox!.x + midpoint.x + gradientPan.x,
+    stageBox!.y + midpoint.y + gradientPan.y,
+    { steps: 8 },
+  );
+  await page.mouse.up();
+  const gradientAfterPan = await stage.screenshot();
+  const darkAfterPan = await sampledRedMean(
+    gradientAfterPan,
+    darkPoint.x + gradientPan.x,
+    darkPoint.y + gradientPan.y,
+  );
+  const lightAfterPan = await sampledRedMean(
+    gradientAfterPan,
+    lightPoint.x + gradientPan.x,
+    lightPoint.y + gradientPan.y,
+  );
+  expect(Math.abs(darkAfterPan - dark)).toBeLessThan(3);
+  expect(Math.abs(lightAfterPan - light)).toBeLessThan(3);
 });

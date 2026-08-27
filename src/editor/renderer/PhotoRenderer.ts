@@ -5,6 +5,7 @@ import type { PhotoEditState } from "@/editor/domain/types";
 import {
   createAdjustmentFilter,
   setFilterEditState,
+  setFilterImageSprite,
   setFilterImageSize,
   type AdjustmentFilter,
 } from "./adjustmentShader";
@@ -73,6 +74,7 @@ export class PhotoRenderer {
       this.sprite.anchor.set(0.5);
       this.sprite.filters = [this.filter];
       this.application.stage.addChild(this.sprite);
+      setFilterImageSprite(this.filter, this.sprite);
     } else {
       this.sprite.texture = texture;
     }
