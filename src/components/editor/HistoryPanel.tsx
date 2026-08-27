@@ -46,7 +46,7 @@ export function HistoryPanel({ photo, events }: { photo: RuntimePhoto; events: H
           const Icon = event.type === "adjustments.reset" ? RotateCcw : SlidersHorizontal;
           return (
             <li className={`history-row ${applied ? "" : "opacity-35"}`} key={event.id}>
-              <div className={`history-dot ${applied ? "bg-amber-300" : "bg-zinc-600"}`} />
+              <div className={`history-dot ${applied ? "bg-zinc-200" : "bg-zinc-600"}`} />
               <Icon className="mt-0.5 size-3.5 shrink-0 text-zinc-500" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">

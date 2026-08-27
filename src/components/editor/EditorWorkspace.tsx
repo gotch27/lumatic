@@ -1,8 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import {
-  Aperture,
   ArrowDownToLine,
   Check,
   Clock3,
@@ -10,13 +10,10 @@ import {
   Eye,
   EyeOff,
   FilePlus2,
-  HardDrive,
-  History,
   ImagePlus,
   LoaderCircle,
   RotateCcw,
   RotateCw,
-  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -41,6 +38,7 @@ export function EditorWorkspace() {
   const history = selectedPhoto ? state.historyByPhoto[selectedPhoto.id] ?? [] : [];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportControllerRef = useRef<AbortController | null>(null);
+  const noticeTimersRef = useRef(new Map<string, number>());
   const [panel, setPanel] = useState<"adjustments" | "history">("adjustments");
   const [newLibraryOpen, setNewLibraryOpen] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
@@ -60,6 +58,29 @@ export function EditorWorkspace() {
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
+
+  useEffect(() => {
+    const activeIds = new Set(state.notices.map((notice) => notice.id));
+    for (const [id, timer] of noticeTimersRef.current) {
+      if (!activeIds.has(id)) {
+        window.clearTimeout(timer);
+        noticeTimersRef.current.delete(id);
+      }
+    }
+    for (const notice of state.notices) {
+      if (noticeTimersRef.current.has(notice.id)) continue;
+      const timer = window.setTimeout(
+        () => editorService.dismissNotice(notice.id),
+        notice.tone === "error" ? 8_000 : 4_500,
+      );
+      noticeTimersRef.current.set(notice.id, timer);
+    }
+  }, [state.notices]);
+
+  useEffect(() => () => {
+    for (const timer of noticeTimersRef.current.values()) window.clearTimeout(timer);
+    noticeTimersRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -115,7 +136,7 @@ export function EditorWorkspace() {
     return (
       <div className="grid h-dvh place-items-center bg-[#101010] text-zinc-500">
         <div className="flex items-center gap-3 text-xs">
-          <LoaderCircle className="size-4 animate-spin text-amber-300" /> Restoring your darkroom…
+          <LoaderCircle className="size-4 animate-spin text-zinc-300" /> Restoring your workspace…
         </div>
       </div>
     );
@@ -143,9 +164,10 @@ export function EditorWorkspace() {
     >
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark"><Aperture className="size-4" /></div>
+          <div className="brand-mark">
+            <Image alt="" height={24} priority src="/brand/lumatic-logo.png" width={24} />
+          </div>
           <span className="text-sm font-semibold tracking-[-.02em] text-zinc-100">Lumatic</span>
-          <span className="rounded border border-white/[0.08] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-[.16em] text-zinc-600">Local</span>
         </div>
         <div className="topbar-divider" />
         <Button onClick={chooseFiles} size="sm" variant="secondary">
@@ -170,18 +192,22 @@ export function EditorWorkspace() {
             {state.showOriginal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
             {state.showOriginal ? "Viewing original" : "Before / after"}
           </Button>
-          <Button disabled={!selectedPhoto || state.exportProgress !== null} onClick={() => void startExport()} size="sm">
-            {state.exportProgress !== null ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowDownToLine className="size-3.5" />}
-            Export
-          </Button>
         </div>
-        <button className="storage-status" onClick={() => void editorService.refreshStorageEstimate()} title="Refresh local storage estimate" type="button">
+        <button
+          className="storage-status"
+          onClick={() => void editorService.refreshStorageEstimate()}
+          title={`${state.saveStatus === "saving" ? "Saving" : state.saveStatus === "error" ? "Changes not saved" : "Saved in this browser"}${storagePercent === null ? "" : ` · ${storagePercent}% of available storage used`}`}
+          type="button"
+        >
           {state.saveStatus === "saving" ? <LoaderCircle className="size-3 animate-spin" /> : state.saveStatus === "error" ? <Clock3 className="size-3 text-red-300" /> : <Check className="size-3 text-emerald-300" />}
-          <span>{state.saveStatus === "saving" ? "Saving" : state.saveStatus === "error" ? "Unsaved" : "Saved locally"}</span>
-          {storagePercent !== null && <span className="text-zinc-700">{storagePercent}%</span>}
+          <span>{state.saveStatus === "saving" ? "Saving" : state.saveStatus === "error" ? "Unsaved" : "Saved"}</span>
         </button>
         <Button aria-label="New library" onClick={() => setNewLibraryOpen(true)} size="iconSm" title="New library" variant="ghost">
           <Trash2 className="size-3.5" />
+        </Button>
+        <Button className="export-button" disabled={!selectedPhoto || state.exportProgress !== null} onClick={() => void startExport()} size="sm">
+          {state.exportProgress !== null ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowDownToLine className="size-3.5" />}
+          Export
         </Button>
       </header>
 
@@ -206,10 +232,10 @@ export function EditorWorkspace() {
           <aside className="right-panel">
             <div className="panel-tabs" role="tablist">
               <button aria-selected={panel === "adjustments"} className={panel === "adjustments" ? "is-active" : ""} onClick={() => setPanel("adjustments")} role="tab" type="button">
-                <SlidersHorizontal className="size-3.5" /> Adjust
+                Adjust
               </button>
               <button aria-selected={panel === "history"} className={panel === "history" ? "is-active" : ""} onClick={() => setPanel("history")} role="tab" type="button">
-                <History className="size-3.5" /> History <span className="tab-count">{history.length}</span>
+                History <span className="tab-count">{history.length}</span>
               </button>
             </div>
             <div className="selected-photo-summary">
@@ -231,16 +257,16 @@ export function EditorWorkspace() {
 
       {draggingFiles && (
         <div className="drop-overlay">
-          <div className="drop-card"><ImagePlus className="size-7 text-amber-200" /><span>Drop photos to import</span><small>JPEG and PNG stay on this device</small></div>
+          <div className="drop-card"><ImagePlus className="size-6 text-zinc-300" /><span>Drop photos to import</span><small>JPEG and PNG</small></div>
         </div>
       )}
 
       {state.isImporting && (
         <div className="progress-toast">
-          <LoaderCircle className="size-4 animate-spin text-amber-300" />
+          <LoaderCircle className="size-4 animate-spin text-zinc-300" />
           <div className="min-w-0 flex-1">
             <div className="flex justify-between text-xs text-zinc-300"><span>Building local previews</span><span>{state.importCompleted}/{state.importTotal}</span></div>
-            <div className="mt-2 h-1 overflow-hidden rounded bg-white/10"><div className="h-full bg-amber-300 transition-all" style={{ width: `${(state.importCompleted / state.importTotal) * 100}%` }} /></div>
+            <div className="mt-2 h-1 overflow-hidden rounded bg-white/10"><div className="h-full bg-zinc-200 transition-all" style={{ width: `${(state.importCompleted / state.importTotal) * 100}%` }} /></div>
           </div>
         </div>
       )}
@@ -248,7 +274,7 @@ export function EditorWorkspace() {
       {state.exportProgress !== null && (
         <div className="export-progress">
           <div className="flex items-center justify-between gap-4"><span className="text-xs font-medium text-zinc-200">{state.exportLabel}</span><span className="font-mono text-[10px] text-zinc-500">{Math.round(state.exportProgress * 100)}%</span></div>
-          <div className="mt-2 h-1 overflow-hidden rounded bg-white/10"><div className="h-full bg-amber-300 transition-all" style={{ width: `${state.exportProgress * 100}%` }} /></div>
+          <div className="mt-2 h-1 overflow-hidden rounded bg-white/10"><div className="h-full bg-zinc-200 transition-all" style={{ width: `${state.exportProgress * 100}%` }} /></div>
           <button className="mt-2 text-[10px] text-zinc-500 hover:text-white" onClick={() => exportControllerRef.current?.abort()} type="button">Cancel export</button>
         </div>
       )}
@@ -283,10 +309,6 @@ export function EditorWorkspace() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {state.photos.length > 0 && (
-        <div className="privacy-indicator"><HardDrive className="size-3" /> Device-only library</div>
-      )}
     </div>
   );
 }

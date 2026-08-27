@@ -43,7 +43,7 @@ function AdjustmentControl({ photo, definition }: { photo: RuntimePhoto; definit
           )}
           <input
             aria-label={`${definition.label} value`}
-            className="h-6 w-14 rounded border border-transparent bg-white/[0.04] px-1.5 text-right font-mono text-[11px] tabular-nums text-zinc-300 outline-none focus:border-amber-300/50 focus:bg-black/20"
+            className="h-6 w-14 rounded border border-transparent bg-white/[0.04] px-1.5 text-right font-mono text-[11px] tabular-nums text-zinc-300 outline-none focus:border-white/20 focus:bg-black/20"
             max={definition.max}
             min={definition.min}
             onBlur={(event) => editorService.commitAdjustment(photo.id, definition.key, Number(event.currentTarget.value))}
@@ -88,7 +88,7 @@ export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
       <section className="panel-section">
         <div className="panel-section-heading">
           <span>Light</span>
-          <span className="text-[10px] font-normal tracking-normal text-zinc-600">GLOBAL</span>
+          <span className="text-[10px] font-normal tracking-normal text-zinc-600">Global</span>
         </div>
         <div className="space-y-3.5">
           {groups.light.map((definition) => (

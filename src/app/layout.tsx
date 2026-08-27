@@ -9,6 +9,7 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 export const metadata: Metadata = {
   title: "Lumatic — Local Photo Editor",
   description: "A private, non-destructive photo editing workspace built for human and agent collaboration.",
+  icons: { icon: "/brand/lumatic-logo.png" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

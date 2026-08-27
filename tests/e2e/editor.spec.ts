@@ -25,7 +25,9 @@ test("imports, edits, restores, exports, and clears a local library", async ({ p
   ]);
   await expect(page.getByTestId("photo-stage")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("1 photo", { exact: true })).toBeVisible();
-  await expect(page.getByText(/broken\.png could not be decoded/)).toBeVisible();
+  const importError = page.getByText(/broken\.png could not be decoded/);
+  await expect(importError).toBeVisible();
+  await expect(importError).toBeHidden({ timeout: 10_000 });
 
   const exposureInput = page.getByLabel("Exposure value");
   await exposureInput.fill("1.25");
