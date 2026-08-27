@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# next
+.next/
+out/
+
+# testing
+coverage/
+playwright-report/
+test-results/
+
+# local
+.DS_Store
+.idea/
+*.pem
+.env*
+!.env.example
+
+# vercel
+.vercel/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+.vercel
