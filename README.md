@@ -66,7 +66,7 @@ Exports retain original pixel dimensions and source format. JPEGs use quality `0
 
 ## Deploy to Vercel
 
-Production: [webmcp-challenge.vercel.app](https://webmcp-challenge.vercel.app)
+Production: [lumatic.vercel.app](https://lumatic.vercel.app)
 
 Import the repository into Vercel or run:
 
