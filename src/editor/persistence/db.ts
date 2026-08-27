@@ -6,6 +6,7 @@ import type {
   PhotoRecord,
   WorkspaceRecord,
 } from "@/editor/domain/types";
+import { normalizeEditState } from "@/editor/domain/adjustments";
 
 export class PhotoEditorDatabase extends Dexie {
   workspace!: EntityTable<WorkspaceRecord, "id">;
@@ -21,6 +22,22 @@ export class PhotoEditorDatabase extends Dexie {
       assets: "&photoId",
       historyEvents: "&id, photoId, [photoId+sequence], timestamp",
     });
+    this.version(2)
+      .stores({
+        workspace: "&id, updatedAt",
+        photos: "&id, order, updatedAt",
+        assets: "&photoId",
+        historyEvents: "&id, photoId, [photoId+sequence], timestamp",
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table("photos").toCollection().modify((photo) => {
+          photo.editState = normalizeEditState(photo.editState);
+        });
+        await transaction.table("historyEvents").toCollection().modify((event) => {
+          event.before = normalizeEditState(event.before);
+          event.after = normalizeEditState(event.after);
+        });
+      });
   }
 }
 

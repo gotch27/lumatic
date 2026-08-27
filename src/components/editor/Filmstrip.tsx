@@ -44,7 +44,7 @@ export function Filmstrip({ photos, selectedPhotoId, onImport }: { photos: Runti
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img alt="" draggable={false} src={photo.thumbnailUrl} />
-            {isEdited(photo.editState.adjustments) && <span className="edited-dot" title="Edited" />}
+            {isEdited(photo.editState) && <span className="edited-dot" title="Edited" />}
             <span className="filmstrip-index">{index + 1}</span>
           </button>
         ))}

@@ -1,18 +1,27 @@
 "use client";
 
-import { History, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Blend, History, RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import { ADJUSTMENT_BY_KEY } from "@/editor/domain/adjustments";
 import type { HistoryEvent, RuntimePhoto } from "@/editor/domain/types";
 
 function eventLabel(event: HistoryEvent): string {
   if (event.type === "adjustments.reset") return "Reset all adjustments";
+  if (event.type === "mask.created") return event.payload.label ?? "Gradient created";
+  if (event.type === "mask.geometry.changed") return event.payload.label ?? "Gradient moved";
+  if (event.type === "mask.deleted") return event.payload.label ?? "Gradient deleted";
+  if (event.type === "mask.adjustment.changed" && event.payload.label) return event.payload.label;
   if (!event.payload.property) return "Adjustment changed";
-  return ADJUSTMENT_BY_KEY[event.payload.property].label;
+  const property = ADJUSTMENT_BY_KEY[event.payload.property].label;
+  return event.type === "mask.adjustment.changed" ? `${event.payload.maskName ?? "Gradient"} · ${property}` : property;
 }
 
 function eventValue(event: HistoryEvent): string {
   if (event.type === "adjustments.reset") return "Defaults";
+  if (event.type === "mask.created") return "Added";
+  if (event.type === "mask.geometry.changed") return "Moved";
+  if (event.type === "mask.deleted") return "Removed";
+  if (event.payload.nextValue === undefined) return "Defaults";
   const value = event.payload.nextValue ?? 0;
   return `${value > 0 ? "+" : ""}${value}`;
 }
@@ -43,7 +52,11 @@ export function HistoryPanel({ photo, events }: { photo: RuntimePhoto; events: H
         </li>
         {events.map((event, index) => {
           const applied = index < photo.historyCursor;
-          const Icon = event.type === "adjustments.reset" ? RotateCcw : SlidersHorizontal;
+          const Icon = event.type === "adjustments.reset"
+            ? RotateCcw
+            : event.type.startsWith("mask.")
+              ? Blend
+              : SlidersHorizontal;
           return (
             <li className={`history-row ${applied ? "" : "opacity-35"}`} key={event.id}>
               <div className={`history-dot ${applied ? "bg-zinc-200" : "bg-zinc-600"}`} />

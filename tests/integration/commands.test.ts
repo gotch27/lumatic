@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { editorService } from "@/editor/commands/editorService";
-import { createDefaultAdjustments } from "@/editor/domain/adjustments";
+import { createDefaultEditState } from "@/editor/domain/adjustments";
+import { getGradientGeometry } from "@/editor/domain/masks";
 import type { RuntimePhoto } from "@/editor/domain/types";
 import { resetDatabaseForTests } from "@/editor/persistence/db";
 import { initialEditorState, useEditorStore } from "@/editor/state/store";
@@ -17,7 +18,7 @@ function testPhoto(): RuntimePhoto {
     height: 80,
     createdAt: 1,
     updatedAt: 1,
-    editState: { adjustments: createDefaultAdjustments() },
+    editState: createDefaultEditState(),
     historyCursor: 0,
     previewUrl: "blob:preview",
     thumbnailUrl: "blob:thumb",
@@ -86,5 +87,53 @@ describe("editor command service", () => {
     editorService.previewAdjustment("photo-1", "tint", 0);
     editorService.commitAdjustment("photo-1", "tint", 0);
     expect(useEditorStore.getState().historyByPhoto["photo-1"]).toHaveLength(0);
+  });
+
+  it("creates a normalized gradient and commits one local adjustment event", () => {
+    const maskId = editorService.beginLinearGradient("photo-1", 0.2, 0.1);
+    expect(maskId).not.toBeNull();
+    editorService.previewLinearGradientGeometry("photo-1", maskId!, {
+      startX: 0.2,
+      startY: 0.1,
+      endX: 0.25,
+      endY: 0.5,
+      feather: 0.7,
+    });
+    const mask = useEditorStore.getState().photos[0].editState.masks[0];
+    editorService.commitLinearGradientGeometry("photo-1", maskId!, getGradientGeometry(mask));
+    editorService.previewMaskAdjustment("photo-1", maskId!, "exposure", -0.4);
+    editorService.previewMaskAdjustment("photo-1", maskId!, "exposure", -0.8);
+    editorService.commitMaskAdjustment("photo-1", maskId!, "exposure", -0.8);
+
+    const state = useEditorStore.getState();
+    expect(state.photos[0].editState.masks[0]).toMatchObject({
+      id: maskId,
+      startX: 0.2,
+      endY: 0.5,
+      feather: 0.7,
+      adjustments: { exposure: -0.8 },
+    });
+    expect(state.historyByPhoto["photo-1"].map((event) => event.type)).toEqual([
+      "mask.created",
+      "mask.adjustment.changed",
+    ]);
+  });
+
+  it("undoes and redoes mask geometry, local edits, and deletion", () => {
+    const maskId = editorService.beginLinearGradient("photo-1", 0.1, 0.1)!;
+    let mask = useEditorStore.getState().photos[0].editState.masks[0];
+    editorService.commitLinearGradientGeometry("photo-1", maskId, getGradientGeometry(mask));
+    editorService.previewLinearGradientGeometry("photo-1", maskId, { ...getGradientGeometry(mask), endY: 0.8 });
+    mask = useEditorStore.getState().photos[0].editState.masks[0];
+    editorService.commitLinearGradientGeometry("photo-1", maskId, getGradientGeometry(mask));
+    editorService.deleteMask("photo-1", maskId);
+    expect(useEditorStore.getState().photos[0].editState.masks).toHaveLength(0);
+
+    editorService.undo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.8);
+    editorService.undo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.35);
+    editorService.redo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.8);
   });
 });

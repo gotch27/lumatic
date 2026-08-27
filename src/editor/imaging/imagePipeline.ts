@@ -1,5 +1,5 @@
 import type { PhotoAssetRecord, PhotoRecord, RuntimePhoto } from "@/editor/domain/types";
-import { createDefaultAdjustments } from "@/editor/domain/adjustments";
+import { createDefaultEditState, normalizeEditState } from "@/editor/domain/adjustments";
 import { supportedImageSchema } from "@/validation/schemas";
 import { createId } from "@/lib/id";
 
@@ -77,7 +77,7 @@ export async function processImageFile(file: File, order: number): Promise<Proce
         height: bitmap.height,
         createdAt: now,
         updatedAt: now,
-        editState: { adjustments: createDefaultAdjustments() },
+        editState: createDefaultEditState(),
         historyCursor: 0,
       },
       assets: { photoId: id, original: file, preview, thumbnail },
@@ -90,7 +90,7 @@ export async function processImageFile(file: File, order: number): Promise<Proce
 export function createRuntimePhoto(photo: PhotoRecord, assets: PhotoAssetRecord): RuntimePhoto {
   return {
     ...photo,
-    editState: { adjustments: { ...photo.editState.adjustments } },
+    editState: normalizeEditState(photo.editState),
     previewUrl: URL.createObjectURL(assets.preview),
     thumbnailUrl: URL.createObjectURL(assets.thumbnail),
   };

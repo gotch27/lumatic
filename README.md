@@ -8,8 +8,10 @@ Built for OpenAI's [WebMCP Challenge](https://openai.com/webmcp-challenge/). Thi
 
 - Multi-image JPEG and PNG import with editing previews and thumbnails
 - Exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, saturation, and vibrance
+- Human-drawn linear gradients with normalized geometry, feathering, and the same ten local adjustments
+- Select, move, resize, reset, and delete gradients directly on the photo
 - PixiJS/WebGL preview with fit, 100%, zoom, and pan controls
-- Structured per-photo history with undo, redo, redo-tail replacement, and Reset All
+- Structured per-photo history for global and spatial edits, with undo, redo, redo-tail replacement, and resets
 - Before/after toggle and `\` hold-to-view-original shortcut
 - IndexedDB persistence for originals, previews, edit state, history, and selection
 - Full-resolution JPEG/PNG export using the same shader as the preview
@@ -38,15 +40,15 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-The end-to-end suite covers mixed valid/corrupt imports, adjustment history, undo/redo, refresh restoration, download output, library clearing, and a 6000×4000 tiled export.
+The end-to-end suite covers mixed valid/corrupt imports, global and gradient history, undo/redo, refresh restoration, spatially correct gradient export, library clearing, and a 6000×4000 tiled export.
 
 ## Architecture
 
 ```text
 src/
   app/                    Next.js shell and global visual system
-  components/editor/      Workspace, canvas, adjustments, history, filmstrip
-  editor/domain/          Photo, adjustment, history, and workspace models
+  components/editor/      Workspace, canvas, adjustments, masks, history, filmstrip
+  editor/domain/          Photo, adjustment, mask, history, and workspace models
   editor/commands/        Framework-independent editor command service
   editor/state/           Zustand runtime state and draft interactions
   editor/persistence/     Dexie schema and transactional repository
@@ -56,7 +58,7 @@ src/
 tests/                    Unit, IndexedDB integration, and Chromium E2E tests
 ```
 
-React controls only invoke the editor service. A slider may update a temporary GPU preview many times, but only its final value becomes one structured history event and one durable IndexedDB transaction. Future WebMCP tools will validate their input and call this same service.
+React controls only invoke the editor service. A slider or gradient drag may update a temporary GPU preview many times, but only its final value or geometry becomes one structured history event and one durable IndexedDB transaction. Gradient coordinates are stored from `0` to `1`, so the same edit works on the preview and tiled original-resolution export. Future WebMCP tools will validate their input and call this same service.
 
 ## Local data and export
 
@@ -78,7 +80,7 @@ No environment variables, API routes, databases, or storage services are require
 
 ## Deferred
 
-WebMCP, agents, masks, crop/rotation, tone curves, RAW/HEIC, batch export, named projects, cloud sync, accounts, and production color-management profiles.
+WebMCP, agents, radial masks, subject/sky segmentation, crop/rotation, tone curves, RAW/HEIC, batch export, named projects, cloud sync, accounts, and production color-management profiles.
 
 ## License
 

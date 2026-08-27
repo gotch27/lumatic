@@ -14,8 +14,21 @@ export type AdjustmentKey =
 
 export type AdjustmentValues = Record<AdjustmentKey, number>;
 
+export interface LinearGradientMask {
+  id: string;
+  type: "linear-gradient";
+  name: string;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  feather: number;
+  adjustments: AdjustmentValues;
+}
+
 export interface PhotoEditState {
   adjustments: AdjustmentValues;
+  masks: LinearGradientMask[];
 }
 
 export interface PhotoRecord {
@@ -39,7 +52,13 @@ export interface PhotoAssetRecord {
   thumbnail: Blob;
 }
 
-export type HistoryEventType = "adjustment.changed" | "adjustments.reset";
+export type HistoryEventType =
+  | "adjustment.changed"
+  | "adjustments.reset"
+  | "mask.created"
+  | "mask.geometry.changed"
+  | "mask.adjustment.changed"
+  | "mask.deleted";
 
 export interface HistoryEvent {
   id: string;
@@ -55,6 +74,8 @@ export interface HistoryEvent {
     previousValue?: number;
     nextValue?: number;
     label?: string;
+    maskId?: string;
+    maskName?: string;
   };
 }
 

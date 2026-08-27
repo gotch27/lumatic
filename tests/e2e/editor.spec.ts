@@ -99,3 +99,77 @@ test("exports a 6000 by 4000 original through the tiled GPU path", async ({ page
   expect(metadata.height).toBe(4000);
   expect(metadata.format).toBe("jpeg");
 });
+
+test("draws, edits, restores, and exports a linear gradient mask", async ({ page }) => {
+  const source = await sharp({
+    create: {
+      width: 1000,
+      height: 1000,
+      channels: 4,
+      background: { r: 160, g: 160, b: 160, alpha: 1 },
+    },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({
+    name: "gradient-source.png",
+    mimeType: "image/png",
+    buffer: source,
+  });
+  await expect(page.getByTestId("photo-stage")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Draw linear gradient" }).click();
+
+  const stage = await page.getByTestId("photo-stage").boundingBox();
+  expect(stage).not.toBeNull();
+  await page.mouse.move(stage!.x + stage!.width * 0.5, stage!.y + stage!.height * 0.2);
+  await page.mouse.down();
+  await page.mouse.move(stage!.x + stage!.width * 0.5, stage!.y + stage!.height * 0.52, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(page.getByRole("button", { name: "Linear Gradient 1", exact: true })).toBeVisible();
+  await expect(page.getByTestId("gradient-overlay")).toBeVisible();
+  const endHandle = page.getByTestId("gradient-handle-end");
+  const handle = await endHandle.boundingBox();
+  expect(handle).not.toBeNull();
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + handle!.width / 2 + 45, handle!.y + handle!.height / 2 + 15, { steps: 5 });
+  await page.mouse.up();
+
+  const localExposure = page.getByLabel("Mask Exposure value");
+  await localExposure.fill("-1");
+  await localExposure.press("Tab");
+  await page.getByRole("tab", { name: /History/ }).click();
+  await expect(page.getByTestId("history-panel")).toContainText("Created Linear Gradient 1");
+  await expect(page.getByTestId("history-panel")).toContainText("Moved Linear Gradient 1");
+  await expect(page.getByTestId("history-panel")).toContainText("Linear Gradient 1 · Exposure");
+
+  await page.getByRole("button", { name: "Undo" }).click();
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await expect(page.getByLabel("Mask Exposure value")).toHaveValue("0");
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(page.getByLabel("Mask Exposure value")).toHaveValue("-1");
+  await page.getByRole("button", { name: "Before / after" }).click();
+  await expect(page.getByTestId("gradient-overlay")).toBeHidden();
+  await page.getByRole("button", { name: "Viewing original" }).click();
+  await expect(page.getByTestId("gradient-overlay")).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  const restoredMask = page.getByRole("button", { name: "Linear Gradient 1", exact: true });
+  await expect(restoredMask).toBeVisible();
+  await restoredMask.click();
+  await expect(page.getByLabel("Mask Exposure value")).toHaveValue("-1");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const topRegion = await sharp(path!).extract({ left: 0, top: 0, width: 1000, height: 150 }).png().toBuffer();
+  const bottomRegion = await sharp(path!).extract({ left: 0, top: 850, width: 1000, height: 150 }).png().toBuffer();
+  const top = await sharp(topRegion).stats();
+  const bottom = await sharp(bottomRegion).stats();
+  expect(top.channels[0].mean).toBeLessThan(bottom.channels[0].mean - 20);
+});

@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AdjustmentPanel } from "./AdjustmentPanel";
 import { EmptyWorkspace } from "./EmptyWorkspace";
 import { Filmstrip } from "./Filmstrip";
+import { GradientPanel } from "./GradientPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -39,7 +40,7 @@ export function EditorWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportControllerRef = useRef<AbortController | null>(null);
   const noticeTimersRef = useRef(new Map<string, number>());
-  const [panel, setPanel] = useState<"adjustments" | "history">("adjustments");
+  const [panel, setPanel] = useState<"adjustments" | "masks" | "history">("adjustments");
   const [newLibraryOpen, setNewLibraryOpen] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
 
@@ -234,6 +235,9 @@ export function EditorWorkspace() {
               <button aria-selected={panel === "adjustments"} className={panel === "adjustments" ? "is-active" : ""} onClick={() => setPanel("adjustments")} role="tab" type="button">
                 Adjust
               </button>
+              <button aria-selected={panel === "masks"} className={panel === "masks" ? "is-active" : ""} onClick={() => setPanel("masks")} role="tab" type="button">
+                Masks <span className="tab-count">{selectedPhoto.editState.masks.length}</span>
+              </button>
               <button aria-selected={panel === "history"} className={panel === "history" ? "is-active" : ""} onClick={() => setPanel("history")} role="tab" type="button">
                 History <span className="tab-count">{history.length}</span>
               </button>
@@ -245,7 +249,9 @@ export function EditorWorkspace() {
               </div>
             </div>
             <div className="min-h-0 flex-1" role="tabpanel">
-              {panel === "adjustments" ? <AdjustmentPanel photo={selectedPhoto} /> : <HistoryPanel events={history} photo={selectedPhoto} />}
+              {panel === "adjustments" && <AdjustmentPanel photo={selectedPhoto} />}
+              {panel === "masks" && <GradientPanel photo={selectedPhoto} />}
+              {panel === "history" && <HistoryPanel events={history} photo={selectedPhoto} />}
             </div>
           </aside>
         </>

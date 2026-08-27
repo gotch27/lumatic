@@ -1,10 +1,10 @@
 import { Application, Sprite, Texture } from "pixi.js";
 
-import type { AdjustmentValues } from "@/editor/domain/types";
+import type { PhotoEditState } from "@/editor/domain/types";
 
 import {
   createAdjustmentFilter,
-  setFilterAdjustments,
+  setFilterEditState,
   type AdjustmentFilter,
 } from "./adjustmentShader";
 
@@ -28,9 +28,11 @@ export class PhotoRenderer {
   private fitted = true;
   private resizeObserver: ResizeObserver | null = null;
   private photoRequest = 0;
+  private onTransform: (() => void) | null = null;
 
-  async mount(host: HTMLElement, adjustments: AdjustmentValues): Promise<void> {
+  async mount(host: HTMLElement, editState: PhotoEditState, onTransform?: () => void): Promise<void> {
     this.host = host;
+    this.onTransform = onTransform ?? null;
     const application = new Application();
     await application.init({
       preference: "webgl",
@@ -45,9 +47,10 @@ export class PhotoRenderer {
     host.appendChild(application.canvas);
 
     this.application = application;
-    this.filter = createAdjustmentFilter(adjustments);
+    this.filter = createAdjustmentFilter(editState);
     this.resizeObserver = new ResizeObserver(() => {
       if (this.fitted) requestAnimationFrame(() => this.fit());
+      else this.onTransform?.();
     });
     this.resizeObserver.observe(host);
   }
@@ -75,9 +78,9 @@ export class PhotoRenderer {
     this.fit();
   }
 
-  setAdjustments(adjustments: AdjustmentValues): void {
+  setEditState(editState: PhotoEditState): void {
     if (!this.filter) return;
-    setFilterAdjustments(this.filter, adjustments);
+    setFilterEditState(this.filter, editState);
   }
 
   fit(): void {
@@ -92,6 +95,7 @@ export class PhotoRenderer {
     this.sprite.scale.set(scale);
     this.sprite.position.set(this.application.screen.width / 2, this.application.screen.height / 2);
     this.fitted = true;
+    this.onTransform?.();
   }
 
   actualSize(): void {
@@ -99,6 +103,7 @@ export class PhotoRenderer {
     this.sprite.scale.set(1);
     this.sprite.position.set(this.application.screen.width / 2, this.application.screen.height / 2);
     this.fitted = false;
+    this.onTransform?.();
   }
 
   zoomAt(delta: number, x: number, y: number): void {
@@ -110,6 +115,7 @@ export class PhotoRenderer {
     this.sprite.scale.set(nextScale);
     this.sprite.position.set(x - worldX * nextScale, y - worldY * nextScale);
     this.fitted = false;
+    this.onTransform?.();
   }
 
   panBy(deltaX: number, deltaY: number): void {
@@ -117,10 +123,27 @@ export class PhotoRenderer {
     this.sprite.x += deltaX;
     this.sprite.y += deltaY;
     this.fitted = false;
+    this.onTransform?.();
   }
 
   getZoomPercent(): number {
     return Math.round((this.sprite?.scale.x ?? 1) * 100);
+  }
+
+  imageToScreen(x: number, y: number): { x: number; y: number } | null {
+    if (!this.sprite) return null;
+    return {
+      x: this.sprite.x + (x - 0.5) * this.sprite.texture.width * this.sprite.scale.x,
+      y: this.sprite.y + (y - 0.5) * this.sprite.texture.height * this.sprite.scale.y,
+    };
+  }
+
+  screenToImage(x: number, y: number): { x: number; y: number } | null {
+    if (!this.sprite) return null;
+    return {
+      x: (x - this.sprite.x) / (this.sprite.texture.width * this.sprite.scale.x) + 0.5,
+      y: (y - this.sprite.y) / (this.sprite.texture.height * this.sprite.scale.y) + 0.5,
+    };
   }
 
   destroy(): void {
@@ -134,5 +157,6 @@ export class PhotoRenderer {
     this.sprite = null;
     this.filter = null;
     this.host = null;
+    this.onTransform = null;
   }
 }

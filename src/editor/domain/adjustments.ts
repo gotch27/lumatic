@@ -1,4 +1,4 @@
-import type { AdjustmentKey, AdjustmentValues } from "./types";
+import type { AdjustmentKey, AdjustmentValues, LinearGradientMask, PhotoEditState } from "./types";
 
 export interface AdjustmentDefinition {
   key: AdjustmentKey;
@@ -44,12 +44,37 @@ export function createDefaultAdjustments(): AdjustmentValues {
   return { ...DEFAULT_ADJUSTMENTS };
 }
 
-export function cloneEditState(adjustments: AdjustmentValues) {
-  return { adjustments: { ...adjustments } };
+export function createDefaultEditState(): PhotoEditState {
+  return { adjustments: createDefaultAdjustments(), masks: [] };
 }
 
-export function isEdited(adjustments: AdjustmentValues): boolean {
-  return ADJUSTMENT_DEFINITIONS.some(({ key }) => adjustments[key] !== DEFAULT_ADJUSTMENTS[key]);
+export function cloneMask(mask: LinearGradientMask): LinearGradientMask {
+  return { ...mask, adjustments: { ...mask.adjustments } };
+}
+
+export function cloneEditState(editState: PhotoEditState): PhotoEditState {
+  return {
+    adjustments: { ...editState.adjustments },
+    masks: editState.masks.map(cloneMask),
+  };
+}
+
+export function normalizeEditState(editState: Partial<PhotoEditState> | undefined): PhotoEditState {
+  return {
+    adjustments: { ...DEFAULT_ADJUSTMENTS, ...(editState?.adjustments ?? {}) },
+    masks: (editState?.masks ?? []).map((mask) => ({
+      ...mask,
+      adjustments: { ...DEFAULT_ADJUSTMENTS, ...mask.adjustments },
+    })),
+  };
+}
+
+export function isEdited(editStateOrAdjustments: PhotoEditState | AdjustmentValues): boolean {
+  const editState = "masks" in editStateOrAdjustments
+    ? editStateOrAdjustments
+    : { adjustments: editStateOrAdjustments, masks: [] };
+  return editState.masks.length > 0
+    || ADJUSTMENT_DEFINITIONS.some(({ key }) => editState.adjustments[key] !== DEFAULT_ADJUSTMENTS[key]);
 }
 
 export function clampAdjustment(key: AdjustmentKey, value: number): number {
@@ -57,4 +82,20 @@ export function clampAdjustment(key: AdjustmentKey, value: number): number {
   const clamped = Math.min(definition.max, Math.max(definition.min, value));
   const decimals = definition.step < 1 ? 2 : 0;
   return Number(clamped.toFixed(decimals));
+}
+
+export function clampNormalized(value: number): number {
+  return Number(Math.min(1, Math.max(0, value)).toFixed(4));
+}
+
+export function clampGradientGeometry(
+  geometry: Pick<LinearGradientMask, "startX" | "startY" | "endX" | "endY" | "feather">,
+) {
+  return {
+    startX: clampNormalized(geometry.startX),
+    startY: clampNormalized(geometry.startY),
+    endX: clampNormalized(geometry.endX),
+    endY: clampNormalized(geometry.endY),
+    feather: clampNormalized(geometry.feather),
+  };
 }

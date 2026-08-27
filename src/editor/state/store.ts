@@ -3,15 +3,15 @@ import { create } from "zustand";
 import type {
   AdjustmentKey,
   HistoryEvent,
+  LinearGradientMask,
   RuntimePhoto,
   SaveStatus,
 } from "@/editor/domain/types";
 
-export interface AdjustmentDraft {
-  photoId: string;
-  key: AdjustmentKey;
-  baselineValue: number;
-}
+export type EditorDraft =
+  | { kind: "global-adjustment"; photoId: string; key: AdjustmentKey; baselineValue: number }
+  | { kind: "mask-adjustment"; photoId: string; maskId: string; key: AdjustmentKey; baselineValue: number }
+  | { kind: "mask-geometry"; photoId: string; maskId: string; baseline: LinearGradientMask | null };
 
 export interface Notice {
   id: string;
@@ -24,7 +24,9 @@ export interface EditorStore {
   photos: RuntimePhoto[];
   selectedPhotoId: string | null;
   historyByPhoto: Record<string, HistoryEvent[]>;
-  draft: AdjustmentDraft | null;
+  draft: EditorDraft | null;
+  selectedMaskId: string | null;
+  maskToolMode: "idle" | "create-linear";
   saveStatus: SaveStatus;
   isImporting: boolean;
   importCompleted: number;
@@ -44,6 +46,8 @@ export const initialEditorState: EditorStore = {
   selectedPhotoId: null,
   historyByPhoto: {},
   draft: null,
+  selectedMaskId: null,
+  maskToolMode: "idle",
   saveStatus: "idle",
   isImporting: false,
   importCompleted: 0,

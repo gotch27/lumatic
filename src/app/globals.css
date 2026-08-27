@@ -68,7 +68,18 @@ button:disabled { cursor: default; }
 .photo-stage { position: relative; width: 100%; height: 100%; overflow: hidden; background: #0d0d0d; }
 .photo-canvas-host { position: absolute; inset: 0; cursor: grab; touch-action: none; }
 .photo-canvas-host:active { cursor: grabbing; }
+.photo-canvas-host.is-drawing-mask, .photo-canvas-host.is-drawing-mask:active { cursor: crosshair; }
 .photo-renderer-canvas { display: block; width: 100%; height: 100%; }
+.gradient-overlay { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.gradient-axis { stroke: rgba(212,212,212,.42); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.gradient-axis.is-selected { stroke: #f1f1f1; }
+.gradient-axis-hit { stroke: transparent; stroke-width: 16; vector-effect: non-scaling-stroke; cursor: move; pointer-events: stroke; }
+.gradient-boundary { stroke: rgba(228,228,231,.62); stroke-width: 1; stroke-dasharray: 5 5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.gradient-boundary-end { stroke: rgba(228,228,231,.36); }
+.gradient-handle { fill: #181818; stroke: #f4f4f5; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; pointer-events: all; }
+.gradient-handle:active { cursor: grabbing; }
+.gradient-handle-end { fill: #f4f4f5; stroke: #181818; }
+.mask-tool-badge { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px 9px; background: rgba(24,24,24,.92); color: #b9b9b9; font-size: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); pointer-events: none; }
 .canvas-tools { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 3px; border-radius: 7px; padding: 3px; border: 1px solid #333; background: rgba(24,24,24,.92); box-shadow: 0 8px 24px rgba(0,0,0,.28); backdrop-filter: blur(10px); }
 .before-badge { position: absolute; top: 12px; left: 12px; border-radius: 5px; padding: 5px 7px; border: 1px solid #383838; background: rgba(24,24,24,.9); color: #d4d4d4; font-size: 9px; font-weight: 600; letter-spacing: .12em; backdrop-filter: blur(10px); }
 .photo-metadata-pill { position: absolute; bottom: 14px; left: 14px; display: flex; gap: 6px; border-radius: 5px; padding: 5px 7px; background: rgba(18,18,18,.78); color: #737373; font: 9px var(--font-geist-mono); backdrop-filter: blur(8px); }
@@ -90,6 +101,12 @@ button:disabled { cursor: default; }
 .history-row { position: relative; display: flex; min-height: 50px; align-items: flex-start; gap: 9px; border-radius: 7px; padding: 9px 8px 8px 21px; }
 .history-row:hover { background: rgba(255,255,255,.025); }
 .history-dot { position: absolute; top: 14px; left: 4px; z-index: 1; width: 7px; height: 7px; border-radius: 999px; box-shadow: 0 0 0 3px #161616; }
+
+.mask-list-section { border-bottom: 1px solid rgba(255,255,255,.06); }
+.mask-list-item { display: flex; width: 100%; height: 31px; align-items: center; gap: 8px; border-radius: 6px; padding: 0 9px; color: #737373; font-size: 11px; transition: background .15s, color .15s; }
+.mask-list-item:hover { background: rgba(255,255,255,.035); color: #c6c6c6; }
+.mask-list-item.is-active { background: #292929; color: #e5e5e5; }
+.mask-draw-hint { display: flex; align-items: center; gap: 7px; margin: 9px; border: 1px solid #383838; border-radius: 6px; padding: 8px 9px; background: #1d1d1d; color: #a3a3a3; font-size: 10px; line-height: 1.45; }
 
 .drop-overlay { position: fixed; inset: var(--topbar-height) 0 var(--filmstrip-height); z-index: 40; display: grid; place-items: center; background: rgba(10,10,10,.82); backdrop-filter: blur(10px); }
 .drop-card { display: flex; min-width: 280px; flex-direction: column; align-items: center; gap: 8px; border: 1px dashed #505050; border-radius: 10px; padding: 34px; color: #e5e5e5; background: #1b1b1b; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
