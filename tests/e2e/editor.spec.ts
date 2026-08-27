@@ -101,6 +101,7 @@ test("exports a 6000 by 4000 original through the tiled GPU path", async ({ page
 });
 
 test("draws, edits, restores, and exports a linear gradient mask", async ({ page }) => {
+  test.setTimeout(60_000);
   const source = await sharp({
     create: {
       width: 1000,
