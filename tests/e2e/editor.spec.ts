@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 import sharp from "sharp";
 
+// GitHub's headless Chromium uses a software WebGL renderer; full image effects and
+// export assertions need more wall time there than they do on a desktop GPU.
+const EDITOR_TEST_TIMEOUT = process.env.CI ? 120_000 : 60_000;
+
 async function pngFixture(width = 1200, height = 800) {
   return sharp({
     create: {
@@ -25,7 +29,7 @@ async function sampledRedMean(image: Buffer, x: number, y: number, size = 11) {
 }
 
 test("imports, edits, restores, exports, and clears a local library", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Shape the light. Keep every decision." })).toBeVisible();
 
@@ -80,7 +84,7 @@ test("imports, edits, restores, exports, and clears a local library", async ({ p
 });
 
 test("exports a 6000 by 4000 original through the tiled GPU path", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
   const largeJpeg = await sharp({
     create: {
       width: 6000,
@@ -112,7 +116,7 @@ test("exports a 6000 by 4000 original through the tiled GPU path", async ({ page
 });
 
 test("draws, edits, restores, and exports a linear gradient mask", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
   const source = await sharp({
     create: {
       width: 1000,
@@ -223,7 +227,7 @@ test("draws, edits, restores, and exports a linear gradient mask", async ({ page
 });
 
 test("edits curves, color, effects, and detail through the shared develop workflow", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
   const source = await sharp({
     create: { width: 800, height: 600, channels: 4, background: { r: 118, g: 132, b: 160, alpha: 1 } },
   }).png().toBuffer();
@@ -332,7 +336,7 @@ test("edits curves, color, effects, and detail through the shared develop workfl
 });
 
 test("keeps vignette and linear gradients locked to image space while panning", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
   const width = 1200;
   const height = 600;
   const source = await sharp({
