@@ -230,17 +230,50 @@ test("edits curves, color, effects, and detail through the shared develop workfl
 
   await page.goto("/");
   await page.getByTestId("file-input").setInputFiles({ name: "develop-suite.png", mimeType: "image/png", buffer: source });
-  await expect(page.getByTestId("photo-stage")).toBeVisible({ timeout: 20_000 });
+  const photoStage = page.getByTestId("photo-stage");
+  await expect(photoStage).toBeVisible({ timeout: 20_000 });
+  const photoStageBox = await photoStage.boundingBox();
+  expect(photoStageBox).not.toBeNull();
+  const neutralPreview = await photoStage.screenshot();
+  const neutralRed = await sampledRedMean(neutralPreview, photoStageBox!.width / 2, photoStageBox!.height / 2);
 
-  const curveMidpoint = page.getByTestId("curve-point-2");
-  await curveMidpoint.scrollIntoViewIfNeeded();
+  const curveGraph = page.getByLabel("rgb tone curve");
+  await curveGraph.scrollIntoViewIfNeeded();
+  const graph = await curveGraph.boundingBox();
+  expect(graph).not.toBeNull();
+  await expect(page.locator(".curve-point")).toHaveCount(2);
+  const blackPoint = page.getByTestId("curve-point-0");
+  const blackPointBox = await blackPoint.boundingBox();
+  expect(blackPointBox).not.toBeNull();
+  const initialBlackCx = await blackPoint.getAttribute("cx");
+  const initialBlackCy = await blackPoint.getAttribute("cy");
+  await page.mouse.move(blackPointBox!.x + blackPointBox!.width / 2, blackPointBox!.y + blackPointBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(blackPointBox!.x + blackPointBox!.width / 2 + 20, blackPointBox!.y - 20, { steps: 5 });
+  await page.mouse.up();
+  await expect(blackPoint).not.toHaveAttribute("cx", initialBlackCx!);
+  await expect(blackPoint).not.toHaveAttribute("cy", initialBlackCy!);
+  await page.mouse.click(graph!.x + graph!.width / 2, graph!.y + graph!.height / 2);
+  await expect(page.locator(".curve-point")).toHaveCount(3);
+  await page.getByRole("button", { name: "Delete selected curve point" }).click();
+  await expect(page.locator(".curve-point")).toHaveCount(2);
+  await page.mouse.click(graph!.x + graph!.width / 2, graph!.y + graph!.height / 2);
+  const curveMidpoint = page.getByTestId("curve-point-1");
   const midpoint = await curveMidpoint.boundingBox();
   expect(midpoint).not.toBeNull();
+  const initialCx = await curveMidpoint.getAttribute("cx");
+  const initialCy = await curveMidpoint.getAttribute("cy");
   await page.mouse.move(midpoint!.x + midpoint!.width / 2, midpoint!.y + midpoint!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(midpoint!.x + midpoint!.width / 2, midpoint!.y - 35, { steps: 6 });
+  await page.mouse.move(midpoint!.x + midpoint!.width / 2 + 35, midpoint!.y - 75, { steps: 6 });
   await page.mouse.up();
-  await expect(curveMidpoint).not.toHaveAttribute("cy", "115");
+  await expect(curveMidpoint).not.toHaveAttribute("cx", initialCx!);
+  await expect(curveMidpoint).not.toHaveAttribute("cy", initialCy!);
+  const movedCx = await curveMidpoint.getAttribute("cx");
+  const movedCy = await curveMidpoint.getAttribute("cy");
+  const curvedPreview = await photoStage.screenshot();
+  const curvedRed = await sampledRedMean(curvedPreview, photoStageBox!.width / 2, photoStageBox!.height / 2);
+  expect(curvedRed).toBeGreaterThan(neutralRed + 5);
 
   await page.getByRole("tab", { name: "Color", exact: true }).click();
   await page.getByRole("tab", { name: "Blue", exact: true }).click();
@@ -276,6 +309,9 @@ test("edits curves, color, effects, and detail through the shared develop workfl
 
   await page.reload();
   await page.getByRole("tab", { name: /Adjust/ }).click();
+  await expect(page.locator(".curve-point")).toHaveCount(3);
+  await expect(page.getByTestId("curve-point-1")).toHaveAttribute("cx", movedCx!);
+  await expect(page.getByTestId("curve-point-1")).toHaveAttribute("cy", movedCy!);
   await page.getByRole("tab", { name: "Effects", exact: true }).click();
   await expect(page.getByLabel("Vignette value")).toHaveValue("-55");
   await expect(page.getByLabel("Grain value")).toHaveValue("24");

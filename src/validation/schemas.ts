@@ -42,7 +42,17 @@ export const developSettingCommandSchema = z.object({
 export const toneCurveCommandSchema = z.object({
   photoId: z.string().min(1),
   channel: z.enum(["rgb", "red", "green", "blue"]),
-  values: z.array(z.number().finite().min(0).max(1)).length(5),
+  points: z.array(z.object({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+  })).min(2).max(16).superRefine((points, context) => {
+    for (let index = 1; index < points.length; index += 1) {
+      if (points[index].x <= points[index - 1].x) {
+        context.addIssue({ code: "custom", message: "Tone curve points must be ordered by input." });
+        break;
+      }
+    }
+  }),
   actor: z.enum(["user", "agent"]).default("user"),
 });
 

@@ -15,7 +15,11 @@ export type AdjustmentKey =
 export type AdjustmentValues = Record<AdjustmentKey, number>;
 
 export type CurveChannel = "rgb" | "red" | "green" | "blue";
-export type ToneCurve = Record<CurveChannel, [number, number, number, number, number]>;
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+export type ToneCurve = Record<CurveChannel, CurvePoint[]>;
 
 export type ColorMixChannel =
   | "red" | "orange" | "yellow" | "green"

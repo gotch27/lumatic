@@ -151,8 +151,9 @@ describe("editor command service", () => {
   });
 
   it("coalesces curves, color, effects, and detail into structured history", () => {
-    editorService.previewToneCurve("photo-1", "rgb", [0, 0.2, 0.62, 0.8, 1]);
-    editorService.commitToneCurve("photo-1", "rgb", [0, 0.2, 0.62, 0.8, 1]);
+    const curve = [{ x: 0, y: 0 }, { x: 0.2, y: 0.18 }, { x: 0.55, y: 0.68 }, { x: 1, y: 1 }];
+    editorService.previewToneCurve("photo-1", "rgb", curve);
+    editorService.commitToneCurve("photo-1", "rgb", curve);
     editorService.previewColorMix("photo-1", "blue", "saturation", -35);
     editorService.commitColorMix("photo-1", "blue", "saturation", -35);
     editorService.previewColorGradeWheel("photo-1", "shadows", 218, 32);
@@ -165,7 +166,7 @@ describe("editor command service", () => {
 
     const state = useEditorStore.getState();
     expect(state.photos[0].editState).toMatchObject({
-      toneCurve: { rgb: [0, 0.2, 0.62, 0.8, 1] },
+      toneCurve: { rgb: curve },
       colorMix: { blue: { saturation: -35 } },
       colorGrading: { shadows: { hue: 225, saturation: 40 } },
       effects: { dehaze: 24 },

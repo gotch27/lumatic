@@ -111,7 +111,7 @@ describe("local workspace persistence", () => {
 
   it("persists curve, color, effects, and detail settings together", async () => {
     const state = createDefaultEditState();
-    state.toneCurve.rgb = [0, 0.2, 0.58, 0.84, 1];
+    state.toneCurve.rgb = [{ x: 0, y: 0 }, { x: 0.3, y: 0.2 }, { x: 0.62, y: 0.72 }, { x: 1, y: 1 }];
     state.colorMix.orange.luminance = 18;
     state.colorGrading.highlights = { hue: 42, saturation: 24, luminance: 5 };
     state.effects.grain = 30;
@@ -137,7 +137,7 @@ describe("local workspace persistence", () => {
     }, photo.id);
     const restored = await loadWorkspace();
     expect(restored.photos[0].editState).toMatchObject({
-      toneCurve: { rgb: [0, 0.2, 0.58, 0.84, 1] },
+      toneCurve: { rgb: [{ x: 0, y: 0 }, { x: 0.3, y: 0.2 }, { x: 0.62, y: 0.72 }, { x: 1, y: 1 }] },
       colorMix: { orange: { luminance: 18 } },
       colorGrading: { highlights: { hue: 42, saturation: 24, luminance: 5 } },
       effects: { grain: 30 },

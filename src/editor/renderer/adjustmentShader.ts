@@ -1,7 +1,12 @@
 import { Filter, GlProgram, Matrix, type Sprite } from "pixi.js";
 
 import { MAX_LINEAR_GRADIENTS } from "@/editor/domain/masks";
-import { COLOR_GRADE_RANGES, COLOR_MIX_CHANNELS, CURVE_CHANNELS } from "@/editor/domain/developSettings";
+import {
+  COLOR_GRADE_RANGES,
+  COLOR_MIX_CHANNELS,
+  CURVE_CHANNELS,
+  MAX_TONE_CURVE_POINTS,
+} from "@/editor/domain/developSettings";
 import type { AdjustmentValues, PhotoEditState } from "@/editor/domain/types";
 
 const vertex = `
@@ -75,11 +80,41 @@ const maskApplications = Array.from({ length: MAX_LINEAR_GRADIENTS }, (_, index)
     color = mix(color, maskColor${index}, clamp(maskWeight${index}, 0.0, 1.0));
 `).join("\n");
 
-const curveUniforms = CURVE_CHANNELS.flatMap(({ key }) => (
-  Array.from({ length: 5 }, (_, index) => `uniform float uCurve${key[0].toUpperCase() + key.slice(1)}${index};`)
-)).join("\n");
+const curveUniforms = CURVE_CHANNELS.map(({ key }) => {
+  const name = key[0].toUpperCase() + key.slice(1);
+  return [
+    `uniform float uCurve${name}Count;`,
+    ...Array.from({ length: MAX_TONE_CURVE_POINTS }, (_, index) => (
+      `uniform float uCurve${name}X${index}; uniform float uCurve${name}Y${index};`
+    )),
+  ].join("\n");
+}).join("\n");
 
-const curveArguments = (channel: string) => Array.from({ length: 5 }, (_, index) => `uCurve${channel}${index}`).join(", ");
+const curveFunctions = CURVE_CHANNELS.map(({ key }) => {
+  const name = key[0].toUpperCase() + key.slice(1);
+  const segments = Array.from({ length: MAX_TONE_CURVE_POINTS - 1 }, (_, offset) => {
+    const index = offset + 1;
+    return `
+      if (uCurve${name}Count > ${index.toFixed(1)}) {
+        float span${index} = max(0.0001, uCurve${name}X${index} - uCurve${name}X${index - 1});
+        if (inputValue <= uCurve${name}X${index}) {
+          float progress${index} = clamp((inputValue - uCurve${name}X${index - 1}) / span${index}, 0.0, 1.0);
+          return mix(uCurve${name}Y${index - 1}, uCurve${name}Y${index}, progress${index});
+        }
+        result = uCurve${name}Y${index};
+      }
+    `;
+  }).join("\n");
+  return `
+    float applyCurve${name}(float value) {
+      float inputValue = clamp(value, 0.0, 1.0);
+      float result = uCurve${name}Y0;
+      if (inputValue <= uCurve${name}X0) return result;
+      ${segments}
+      return result;
+    }
+  `;
+}).join("\n");
 
 const colorMixUniforms = COLOR_MIX_CHANNELS.map(({ key }) => {
   const name = key[0].toUpperCase() + key.slice(1);
@@ -160,24 +195,18 @@ const fragment = `
     return dot(value, vec3(0.2126, 0.7152, 0.0722));
   }
 
-  float applyCurve(float value, float p0, float p1, float p2, float p3, float p4) {
-    float x = clamp(value, 0.0, 1.0) * 4.0;
-    if (x < 1.0) return mix(p0, p1, x);
-    if (x < 2.0) return mix(p1, p2, x - 1.0);
-    if (x < 3.0) return mix(p2, p3, x - 2.0);
-    return mix(p3, p4, x - 3.0);
-  }
+  ${curveFunctions}
 
   vec3 applyToneCurves(vec3 color) {
     color = vec3(
-      applyCurve(color.r, ${curveArguments("Rgb")}),
-      applyCurve(color.g, ${curveArguments("Rgb")}),
-      applyCurve(color.b, ${curveArguments("Rgb")})
+      applyCurveRgb(color.r),
+      applyCurveRgb(color.g),
+      applyCurveRgb(color.b)
     );
     return vec3(
-      applyCurve(color.r, ${curveArguments("Red")}),
-      applyCurve(color.g, ${curveArguments("Green")}),
-      applyCurve(color.b, ${curveArguments("Blue")})
+      applyCurveRed(color.r),
+      applyCurveGreen(color.g),
+      applyCurveBlue(color.b)
     );
   }
 
@@ -422,9 +451,13 @@ function defineDevelopUniforms(editState: PhotoEditState): Record<string, { valu
   const resources: Record<string, { value: number; type: "f32" }> = {};
   for (const { key } of CURVE_CHANNELS) {
     const name = key[0].toUpperCase() + key.slice(1);
-    editState.toneCurve[key].forEach((value, index) => {
-      resources[`uCurve${name}${index}`] = { value, type: "f32" };
-    });
+    const points = editState.toneCurve[key];
+    resources[`uCurve${name}Count`] = { value: points.length, type: "f32" };
+    for (let index = 0; index < MAX_TONE_CURVE_POINTS; index += 1) {
+      const point = points[index] ?? points[points.length - 1] ?? { x: 1, y: 1 };
+      resources[`uCurve${name}X${index}`] = { value: point.x, type: "f32" };
+      resources[`uCurve${name}Y${index}`] = { value: point.y, type: "f32" };
+    }
   }
   for (const { key } of COLOR_MIX_CHANNELS) {
     const name = key[0].toUpperCase() + key.slice(1);

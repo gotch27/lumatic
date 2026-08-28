@@ -22,7 +22,7 @@ import {
   createDefaultDetail,
   createDefaultEffects,
   createDefaultToneCurve,
-  normalizeCurveValues,
+  normalizeCurvePoints,
 } from "@/editor/domain/developSettings";
 import type {
   Actor,
@@ -30,6 +30,7 @@ import type {
   ColorGradeRange,
   ColorMixChannel,
   CurveChannel,
+  CurvePoint,
   DetailValues,
   EffectValues,
   HistoryEvent,
@@ -360,23 +361,23 @@ function commitDevelopState(
   commitEvent(photoId, before, after, type, payload, actor);
 }
 
-function previewToneCurve(photoId: string, channel: CurveChannel, values: readonly number[]): void {
-  const parsed = toneCurveCommandSchema.parse({ photoId, channel, values: normalizeCurveValues(values), actor: "user" });
+function previewToneCurve(photoId: string, channel: CurveChannel, points: readonly CurvePoint[]): void {
+  const parsed = toneCurveCommandSchema.parse({ photoId, channel, points: normalizeCurvePoints(points), actor: "user" });
   const target = `curve.${channel}`;
   previewDevelopState(photoId, target, (editState) => {
-    editState.toneCurve[channel] = normalizeCurveValues(parsed.values);
+    editState.toneCurve[channel] = normalizeCurvePoints(parsed.points);
   });
 }
 
 function commitToneCurve(
   photoId: string,
   channel: CurveChannel,
-  values: readonly number[],
+  points: readonly CurvePoint[],
   actor: Actor = "user",
 ): void {
-  const parsed = toneCurveCommandSchema.parse({ photoId, channel, values: normalizeCurveValues(values), actor });
+  const parsed = toneCurveCommandSchema.parse({ photoId, channel, points: normalizeCurvePoints(points), actor });
   const target = `curve.${channel}`;
-  previewToneCurve(photoId, channel, parsed.values);
+  previewToneCurve(photoId, channel, parsed.points);
   commitDevelopState(photoId, target, "curve.changed", {
     property: channel,
     label: `${channel === "rgb" ? "RGB" : channel[0].toUpperCase() + channel.slice(1)} curve`,

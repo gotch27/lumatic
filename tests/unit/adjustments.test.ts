@@ -14,7 +14,8 @@ import {
   EFFECT_DEFINITIONS,
   createDefaultColorMix,
   createDefaultToneCurve,
-  normalizeCurveValues,
+  evaluateToneCurve,
+  normalizeCurvePoints,
 } from "@/editor/domain/developSettings";
 
 describe("adjustment domain", () => {
@@ -79,7 +80,7 @@ describe("adjustment domain", () => {
     expect(DETAIL_DEFINITIONS.map((item) => item.key)).toContain("colorNoise");
     const state = createDefaultEditState();
     const second = createDefaultEditState();
-    state.toneCurve.rgb[2] = 0.7;
+    state.toneCurve.rgb[1].y = 0.7;
     state.colorMix.blue.saturation = -25;
     expect(second.toneCurve).toEqual(createDefaultToneCurve());
     expect(second.colorMix).toEqual(createDefaultColorMix());
@@ -88,9 +89,20 @@ describe("adjustment domain", () => {
 
   it("normalizes legacy edit state and clamps curve points", () => {
     const legacy = normalizeEditState({ adjustments: { ...createDefaultAdjustments(), exposure: 1 } });
-    expect(legacy.toneCurve.rgb).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(legacy.toneCurve.rgb).toEqual([{ x: 0, y: 0 }, { x: 1, y: 1 }]);
     expect(legacy.effects.vignetteMidpoint).toBe(50);
     expect(legacy.detail.sharpeningRadius).toBe(1);
-    expect(normalizeCurveValues([-2, 0.2, 0.56789, 0.8, 4])).toEqual([0, 0.2, 0.5679, 0.8, 1]);
+    expect(normalizeCurvePoints([-2, 0.2, 0.56789, 0.8, 4])).toEqual([
+      { x: 0, y: 0 },
+      { x: 0.25, y: 0.2 },
+      { x: 0.5, y: 0.5679 },
+      { x: 0.75, y: 0.8 },
+      { x: 1, y: 1 },
+    ]);
+    expect(evaluateToneCurve([{ x: 0, y: 0.1 }, { x: 0.4, y: 0.7 }, { x: 1, y: 0.9 }], 0.2)).toBeCloseTo(0.4);
+    expect(normalizeCurvePoints([{ x: 0.15, y: 0.2 }, { x: 0.82, y: 0.9 }])).toEqual([
+      { x: 0.15, y: 0.2 },
+      { x: 0.82, y: 0.9 },
+    ]);
   });
 });

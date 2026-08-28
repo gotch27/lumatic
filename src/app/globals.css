@@ -71,12 +71,16 @@ button:disabled { cursor: default; }
 .curve-channel-tabs button { height: 23px; min-width: 31px; border-radius: 5px; padding: 0 7px; color: #666; font-size: 9px; }
 .curve-channel-tabs button:hover { color: #aaa; }
 .curve-channel-tabs button.is-active { background: #2a2a2a; color: var(--curve-color); }
-.curve-graph { display: block; width: 100%; aspect-ratio: 1; overflow: visible; border: 1px solid #353535; border-radius: 5px; background: #111; touch-action: none; }
+.curve-graph { display: block; width: 100%; aspect-ratio: 1; overflow: visible; border: 1px solid #353535; border-radius: 5px; outline: none; background: #111; touch-action: none; }
+.curve-graph:focus-visible { border-color: #555; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
 .curve-grid { fill: none; stroke: rgba(255,255,255,.06); stroke-width: 1; }
 .curve-diagonal { fill: none; stroke: rgba(255,255,255,.11); stroke-width: 1; stroke-dasharray: 3 4; }
 .curve-histogram { fill: url(#curve-histogram); stroke: none; pointer-events: none; }
 .curve-line { fill: none; stroke-width: 1.7; stroke-linejoin: round; }
-.curve-point { stroke: #121212; stroke-width: 2; cursor: ns-resize; }
+.curve-line-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: crosshair; pointer-events: stroke; }
+.curve-point { stroke: #121212; stroke-width: 2; cursor: move; }
+.curve-point.is-endpoint { cursor: move; }
+.curve-point.is-selected { stroke: #f4f4f5; stroke-width: 2.5; }
 .color-channel-row { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
 .color-channel-row button { display: grid; aspect-ratio: 1; place-items: center; border-radius: 5px; }
 .color-channel-row button:hover, .color-channel-row button.is-active { background: rgba(255,255,255,.07); }

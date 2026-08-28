@@ -9,7 +9,7 @@ import {
   createDefaultEffects,
   createDefaultToneCurve,
   hasDevelopEdits,
-  normalizeCurveValues,
+  normalizeCurvePoints,
 } from "./developSettings";
 
 export interface AdjustmentDefinition {
@@ -94,10 +94,10 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
   return {
     adjustments: { ...DEFAULT_ADJUSTMENTS, ...(editState?.adjustments ?? {}) },
     toneCurve: {
-      rgb: normalizeCurveValues(storedCurve?.rgb ?? defaultCurve.rgb),
-      red: normalizeCurveValues(storedCurve?.red ?? defaultCurve.red),
-      green: normalizeCurveValues(storedCurve?.green ?? defaultCurve.green),
-      blue: normalizeCurveValues(storedCurve?.blue ?? defaultCurve.blue),
+      rgb: normalizeCurvePoints(storedCurve?.rgb ?? defaultCurve.rgb),
+      red: normalizeCurvePoints(storedCurve?.red ?? defaultCurve.red),
+      green: normalizeCurvePoints(storedCurve?.green ?? defaultCurve.green),
+      blue: normalizeCurvePoints(storedCurve?.blue ?? defaultCurve.blue),
     },
     colorMix: Object.fromEntries(Object.keys(defaultMix).map((key) => [key, {
       ...defaultMix[key as keyof typeof defaultMix],
