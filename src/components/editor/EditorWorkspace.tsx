@@ -164,10 +164,9 @@ export function EditorWorkspace() {
     >
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-mark">
-            <Image alt="" height={24} priority src="/brand/lumatic-logo.png" width={24} />
+          <div className="brand-wordmark">
+            <Image alt="Lumatic" height={724} priority src="/brand/lumatic-wordmark.png" width={2172} />
           </div>
-          <span className="text-sm font-semibold tracking-[-.02em] text-zinc-100">Lumatic</span>
         </div>
         <div className="topbar-divider" />
         <Button onClick={chooseFiles} size="sm" variant="secondary">
