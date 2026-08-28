@@ -224,6 +224,17 @@ test("draws, edits, restores, and exports a linear gradient mask", async ({ page
   const top = await sharp(topRegion).stats();
   const bottom = await sharp(bottomRegion).stats();
   expect(top.channels[0].mean).toBeLessThan(bottom.channels[0].mean - 20);
+
+  await page.getByRole("button", { name: "Delete Linear Gradient 1" }).click();
+  await expect(page.getByRole("button", { name: "Linear Gradient 1", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  const restoredAfterDelete = page.getByRole("button", { name: "Linear Gradient 1", exact: true });
+  await expect(restoredAfterDelete).toBeVisible();
+  await restoredAfterDelete.click();
+  await page.keyboard.press("Delete");
+  await expect(restoredAfterDelete).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("button", { name: "Linear Gradient 1", exact: true })).toBeVisible();
 });
 
 test("draws, resizes, inverts, and restores a radial gradient mask", async ({ page }) => {

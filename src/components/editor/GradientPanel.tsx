@@ -207,8 +207,15 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
           <section className="panel-section border-t border-white/[0.06]">
             <div className="mb-3 flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-xs font-medium text-zinc-200">{selectedMask.name}</p>
-              <Button aria-label={`Delete ${selectedMask.name}`} onClick={() => editorService.deleteMask(photo.id, selectedMask.id)} size="iconSm" title="Delete gradient" variant="ghost">
-                <Trash2 className="size-3.5" />
+              <Button
+                aria-label={`Delete ${selectedMask.name}`}
+                className="h-6 gap-1 px-1.5 text-[10px] text-zinc-500 hover:text-red-300"
+                onClick={() => editorService.deleteMask(photo.id, selectedMask.id)}
+                size="sm"
+                title="Delete selected mask (Delete)"
+                variant="ghost"
+              >
+                <Trash2 className="size-3" /> Delete
               </Button>
             </div>
             <button

@@ -95,6 +95,13 @@ export function EditorWorkspace() {
       }
       if (!editingText && event.key === "ArrowLeft") editorService.navigatePhoto(-1);
       if (!editingText && event.key === "ArrowRight") editorService.navigatePhoto(1);
+      if (!editingText && (event.key === "Delete" || event.key === "Backspace") && selectedPhoto) {
+        const mask = selectedPhoto.editState.masks.find((item) => item.id === state.selectedMaskId);
+        if (mask) {
+          event.preventDefault();
+          editorService.deleteMask(selectedPhoto.id, mask.id);
+        }
+      }
       if (!editingText && (event.key === "[" || event.key === "]") && selectedPhoto) {
         const mask = selectedPhoto.editState.masks.find((item) => item.id === state.selectedMaskId);
         if (mask?.type === "brush") {
