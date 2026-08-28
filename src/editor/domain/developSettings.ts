@@ -26,7 +26,7 @@ export const CURVE_CHANNELS: Array<{ key: CurveChannel; label: string; color: st
   { key: "blue", label: "Blue", color: "#60a5fa" },
 ];
 
-export const MAX_TONE_CURVE_POINTS = 8;
+export const MAX_TONE_CURVE_POINTS = 5;
 export const MIN_CURVE_POINT_GAP = 0.005;
 
 export const COLOR_MIX_CHANNELS: Array<{ key: ColorMixChannel; label: string; color: string }> = [
