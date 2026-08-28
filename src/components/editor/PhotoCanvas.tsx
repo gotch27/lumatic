@@ -49,6 +49,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   const [error, setError] = useState<string | null>(null);
   const [transformVersion, setTransformVersion] = useState(0);
   const [overlayMasks, setOverlayMasks] = useState<OverlayMask[]>([]);
+  const [imageTopLeft, setImageTopLeft] = useState<{ x: number; y: number } | null>(null);
 
   const pointFromEvent = (clientX: number, clientY: number) => {
     const host = hostRef.current;
@@ -121,6 +122,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       return start && end ? [{ mask, start, end }] : [];
     }));
   }, [photo.editState.masks, showOriginal, transformVersion]);
+
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    setImageTopLeft(ready && renderer ? renderer.imageToScreen(0, 0) : null);
+  }, [photo.id, ready, transformVersion]);
 
   const fit = () => {
     rendererRef.current?.fit();
@@ -309,6 +315,17 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
             );
           })}
         </svg>
+      )}
+
+      {imageTopLeft && (
+        <div
+          className="photo-name-label"
+          data-testid="canvas-photo-name"
+          style={{ left: imageTopLeft.x, top: imageTopLeft.y }}
+          title={photo.name}
+        >
+          {photo.name}
+        </div>
       )}
 
       {maskToolMode === "create-linear" && <div className="mask-tool-badge">Drag on photo to draw gradient · Esc to cancel</div>}

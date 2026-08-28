@@ -27,7 +27,6 @@ import { HistoryPanel } from "./HistoryPanel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { editorService } from "@/editor/commands/editorService";
-import { formatBytes } from "@/editor/imaging/imagePipeline";
 import { exportPhoto } from "@/editor/imaging/exportPhoto";
 import { selectedPhotoFromState, useEditorStore } from "@/editor/state/store";
 
@@ -241,12 +240,6 @@ export function EditorWorkspace() {
               <button aria-selected={panel === "history"} className={panel === "history" ? "is-active" : ""} onClick={() => setPanel("history")} role="tab" type="button">
                 History <span className="tab-count">{history.length}</span>
               </button>
-            </div>
-            <div className="selected-photo-summary">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-zinc-200" title={selectedPhoto.name}>{selectedPhoto.name}</p>
-                <p className="mt-0.5 text-[10px] text-zinc-600">{formatBytes(selectedPhoto.size)} · {selectedPhoto.width} × {selectedPhoto.height}</p>
-              </div>
             </div>
             <div className="min-h-0 flex-1" role="tabpanel">
               {panel === "adjustments" && <AdjustmentPanel photo={selectedPhoto} />}
