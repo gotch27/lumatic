@@ -6,11 +6,13 @@ import {
   createDefaultAdjustments,
 } from "@/editor/domain/adjustments";
 import {
+  createBrushMask,
   createLinearGradientMask,
   createRadialGradientMask,
   getGradientGeometry,
   getRadialGradientGeometry,
   MAX_GRADIENT_MASKS,
+  normalizeBrushPoint,
   sameGradientGeometry,
   sameRadialGradientGeometry,
   type LinearGradientGeometry,
@@ -39,7 +41,8 @@ import type {
   EffectValues,
   HistoryEvent,
   HistoryEventType,
-  GradientMask,
+  BrushPoint,
+  EditorMask,
   PhotoEditState,
   PhotoRecord,
   RuntimePhoto,
@@ -122,14 +125,14 @@ function persistentPhoto(photo: RuntimePhoto): PhotoRecord {
   return record as PhotoRecord;
 }
 
-function findMask(photo: RuntimePhoto, maskId: string): GradientMask | null {
+function findMask(photo: RuntimePhoto, maskId: string): EditorMask | null {
   return photo.editState.masks.find((mask) => mask.id === maskId) ?? null;
 }
 
 function replaceMask(
   editState: PhotoEditState,
   maskId: string,
-  update: (mask: GradientMask) => GradientMask,
+  update: (mask: EditorMask) => EditorMask,
 ): PhotoEditState {
   const next = cloneEditState(editState);
   next.masks = editState.masks.map((mask) => (mask.id === maskId ? update(cloneMask(mask)) : cloneMask(mask)));
@@ -625,6 +628,171 @@ function beginRadialGradient(photoId: string, centerX: number, centerY: number):
   return mask.id;
 }
 
+function beginBrushMask(photoId: string): string | null {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return null;
+  if (photo.editState.masks.length >= MAX_GRADIENT_MASKS) {
+    addNotice(`A photo can currently contain up to ${MAX_GRADIENT_MASKS} masks.`, "error");
+    return null;
+  }
+  const index = photo.editState.masks.filter((mask) => mask.type === "brush").length + 1;
+  const mask = createBrushMask(createId(), index);
+  const before = cloneEditState(photo.editState);
+  const after = cloneEditState(photo.editState);
+  after.masks = [...after.masks, mask];
+  commitEvent(photoId, before, after, "mask.created", {
+    maskId: mask.id,
+    maskName: mask.name,
+    label: `Created ${mask.name}`,
+  }, "user");
+  useEditorStore.setState({
+    selectedMaskId: mask.id,
+    maskToolMode: "paint-brush",
+    brushPaintMode: "add",
+  });
+  return mask.id;
+}
+
+function beginBrushStroke(photoId: string, maskId: string, point: BrushPoint): string | null {
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.type !== "brush") return null;
+  const draft = state.draft?.kind === "mask-geometry"
+    && state.draft.photoId === photoId
+    && state.draft.maskId === maskId
+    ? state.draft
+    : { kind: "mask-geometry" as const, photoId, maskId, baseline: cloneMask(mask) };
+  const strokeId = createId();
+  const stroke = {
+    id: strokeId,
+    mode: state.brushPaintMode,
+    size: mask.size,
+    feather: mask.feather,
+    flow: mask.flow,
+    points: [normalizeBrushPoint(point)],
+  };
+  useEditorStore.setState({ draft, selectedMaskId: maskId, maskToolMode: "paint-brush" });
+  replacePhoto(photoId, (current) => ({
+    ...current,
+    editState: replaceMask(current.editState, maskId, (currentMask) => (
+      currentMask.type === "brush"
+        ? { ...currentMask, strokes: [...currentMask.strokes, stroke] }
+        : currentMask
+    )),
+  }));
+  return strokeId;
+}
+
+function previewBrushStroke(photoId: string, maskId: string, strokeId: string, points: BrushPoint[]): void {
+  if (points.length === 0) return;
+  const normalized = points.map(normalizeBrushPoint);
+  replacePhoto(photoId, (current) => ({
+    ...current,
+    editState: replaceMask(current.editState, maskId, (mask) => {
+      if (mask.type !== "brush") return mask;
+      return {
+        ...mask,
+        strokes: mask.strokes.map((stroke) => (
+          stroke.id === strokeId ? { ...stroke, points: [...stroke.points, ...normalized] } : stroke
+        )),
+      };
+    }),
+  }));
+}
+
+function commitBrushStroke(photoId: string, maskId: string): void {
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.type !== "brush") return;
+  const baseline = state.draft?.kind === "mask-geometry"
+    && state.draft.photoId === photoId
+    && state.draft.maskId === maskId
+    ? state.draft.baseline
+    : cloneMask(mask);
+  const after = cloneEditState(photo.editState);
+  if (!baseline) {
+    const before = cloneEditState(photo.editState);
+    before.masks = before.masks.filter((item) => item.id !== maskId);
+    commitEvent(photoId, before, after, "mask.created", {
+      maskId,
+      maskName: mask.name,
+      label: `Created ${mask.name}`,
+    }, "user");
+  } else {
+    const before = replaceMask(photo.editState, maskId, () => cloneMask(baseline));
+    commitEvent(photoId, before, after, "mask.geometry.changed", {
+      maskId,
+      maskName: mask.name,
+      label: `${state.brushPaintMode === "erase" ? "Erased from" : "Painted"} ${mask.name}`,
+    }, "user");
+  }
+  useEditorStore.setState({ maskToolMode: "paint-brush" });
+}
+
+type BrushSetting = "size" | "feather" | "flow" | "density";
+
+function previewBrushSetting(photoId: string, maskId: string, setting: BrushSetting, value: number): void {
+  const nextValue = Math.max(setting === "size" || setting === "flow" || setting === "density" ? 0.01 : 0, Math.min(1, value));
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.type !== "brush") return;
+  const draft = state.draft?.kind === "mask-geometry"
+    && state.draft.photoId === photoId
+    && state.draft.maskId === maskId
+    ? state.draft
+    : { kind: "mask-geometry" as const, photoId, maskId, baseline: cloneMask(mask) };
+  useEditorStore.setState({ draft });
+  replacePhoto(photoId, (current) => ({
+    ...current,
+    editState: replaceMask(current.editState, maskId, (currentMask) => (
+      currentMask.type === "brush" ? { ...currentMask, [setting]: Number(nextValue.toFixed(4)) } : currentMask
+    )),
+  }));
+}
+
+function commitBrushSetting(photoId: string, maskId: string, setting: BrushSetting, value: number): void {
+  previewBrushSetting(photoId, maskId, setting, value);
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  const draft = state.draft?.kind === "mask-geometry" && state.draft.maskId === maskId ? state.draft : null;
+  if (!photo || !mask || mask.type !== "brush" || !draft) return;
+  if (!draft.baseline) return;
+  const before = replaceMask(photo.editState, maskId, () => cloneMask(draft.baseline as EditorMask));
+  const after = cloneEditState(photo.editState);
+  if (JSON.stringify(before) === JSON.stringify(after)) {
+    useEditorStore.setState({ draft: null });
+    return;
+  }
+  commitEvent(photoId, before, after, "mask.geometry.changed", {
+    maskId,
+    maskName: mask.name,
+    label: `${mask.name} · ${setting[0].toUpperCase()}${setting.slice(1)}`,
+  }, "user");
+  useEditorStore.setState({ maskToolMode: "paint-brush" });
+}
+
+function clearBrushMask(photoId: string, maskId: string): void {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.type !== "brush" || mask.strokes.length === 0) return;
+  const before = cloneEditState(photo.editState);
+  const after = replaceMask(photo.editState, maskId, (currentMask) => (
+    currentMask.type === "brush" ? { ...currentMask, strokes: [] } : currentMask
+  ));
+  commitEvent(photoId, before, after, "mask.geometry.changed", {
+    maskId,
+    maskName: mask.name,
+    label: `Cleared ${mask.name}`,
+  }, "user");
+  useEditorStore.setState({ selectedMaskId: maskId, maskToolMode: "paint-brush" });
+}
+
 function previewLinearGradientGeometry(photoId: string, maskId: string, geometry: LinearGradientGeometry): void {
   const nextGeometry = clampGradientGeometry(geometry);
   linearGradientGeometrySchema.parse(nextGeometry);
@@ -873,7 +1041,10 @@ function deleteMask(photoId: string, maskId: string): void {
 
 function cancelAdjustment(): void {
   const draft = useEditorStore.getState().draft;
-  if (!draft) return;
+  if (!draft) {
+    useEditorStore.setState({ maskToolMode: "idle" });
+    return;
+  }
   if (draft.kind === "global-adjustment") {
     replacePhoto(draft.photoId, (photo) => ({
       ...photo,
@@ -894,7 +1065,7 @@ function cancelAdjustment(): void {
     replacePhoto(draft.photoId, (photo) => ({
       ...photo,
       editState: draft.baseline
-        ? replaceMask(photo.editState, draft.maskId, () => cloneMask(draft.baseline as GradientMask))
+        ? replaceMask(photo.editState, draft.maskId, () => cloneMask(draft.baseline as EditorMask))
         : {
             ...cloneEditState(photo.editState),
             masks: photo.editState.masks.filter((mask) => mask.id !== draft.maskId),
@@ -986,9 +1157,13 @@ async function newLibrary(): Promise<void> {
   addNotice("A fresh local library is ready.", "success");
 }
 
-function setMaskToolMode(maskToolMode: "idle" | "create-linear" | "create-radial"): void {
+function setMaskToolMode(maskToolMode: "idle" | "create-linear" | "create-radial" | "paint-brush"): void {
   cancelAdjustment();
   useEditorStore.setState({ maskToolMode });
+}
+
+function setBrushPaintMode(brushPaintMode: "add" | "erase"): void {
+  useEditorStore.setState({ brushPaintMode, maskToolMode: "paint-brush" });
 }
 
 function selectMask(maskId: string | null): void {
@@ -1030,6 +1205,13 @@ export const editorService = {
   resetDevelopGroup,
   beginLinearGradient,
   beginRadialGradient,
+  beginBrushMask,
+  beginBrushStroke,
+  previewBrushStroke,
+  commitBrushStroke,
+  previewBrushSetting,
+  commitBrushSetting,
+  clearBrushMask,
   previewLinearGradientGeometry,
   commitLinearGradientGeometry,
   previewRadialGradientGeometry,
@@ -1047,6 +1229,7 @@ export const editorService = {
   navigatePhoto,
   newLibrary,
   setMaskToolMode,
+  setBrushPaintMode,
   selectMask,
   dismissNotice,
   setShowOriginal,

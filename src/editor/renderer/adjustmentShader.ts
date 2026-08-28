@@ -1,4 +1,4 @@
-import { Filter, GlProgram, Matrix, type Sprite } from "pixi.js";
+import { Filter, GlProgram, Matrix, Texture, type Sprite } from "pixi.js";
 
 import { MAX_GRADIENT_MASKS } from "@/editor/domain/masks";
 import {
@@ -8,6 +8,13 @@ import {
   MAX_TONE_CURVE_POINTS,
 } from "@/editor/domain/developSettings";
 import type { AdjustmentValues, PhotoEditState } from "@/editor/domain/types";
+import {
+  BRUSH_ATLAS_COLUMNS,
+  BRUSH_ATLAS_ROWS,
+  PREVIEW_BRUSH_CELL_SIZE,
+  createBrushAtlasCanvas,
+  renderBrushMaskAtlas,
+} from "@/editor/renderer/brushMaskAtlas";
 
 const vertex = `
   precision highp float;
@@ -72,6 +79,7 @@ const maskUniforms = Array.from({ length: MAX_GRADIENT_MASKS }, (_, index) => `
   uniform float uMask${index}CenterY;
   uniform float uMask${index}RadiusX;
   uniform float uMask${index}RadiusY;
+  uniform float uMask${index}Density;
   ${adjustmentUniformDeclarations(`uMask${index}`)}
 `).join("\n");
 
@@ -88,7 +96,15 @@ const maskApplications = Array.from({ length: MAX_GRADIENT_MASKS }, (_, index) =
       vec2(uMask${index}RadiusX, uMask${index}RadiusY),
       uMask${index}Feather
     );
-    float maskWeight${index} = mix(linearMaskWeight${index}, radialMaskWeight${index}, uMask${index}Type);
+    float brushMaskWeight${index} = texture2D(
+      uBrushMaskTexture,
+      vec2(
+        (imageUv.x + ${(index % BRUSH_ATLAS_COLUMNS).toFixed(1)}) / ${BRUSH_ATLAS_COLUMNS.toFixed(1)},
+        (imageUv.y + ${Math.floor(index / BRUSH_ATLAS_COLUMNS).toFixed(1)}) / ${BRUSH_ATLAS_ROWS.toFixed(1)}
+      )
+    ).r * uMask${index}Density;
+    float geometricMaskWeight${index} = mix(linearMaskWeight${index}, radialMaskWeight${index}, step(0.5, uMask${index}Type));
+    float maskWeight${index} = mix(geometricMaskWeight${index}, brushMaskWeight${index}, step(1.5, uMask${index}Type));
     maskWeight${index} = mix(maskWeight${index}, 1.0 - maskWeight${index}, uMask${index}Inverted) * uMask${index}Active;
     vec3 maskColor${index} = applyAdjustments(color, ${adjustmentArguments(`uMask${index}`)});
     color = mix(color, maskColor${index}, clamp(maskWeight${index}, 0.0, 1.0));
@@ -169,6 +185,7 @@ const fragment = `
   in vec2 vImageUv;
   out vec4 finalColor;
   uniform sampler2D uTexture;
+  uniform sampler2D uBrushMaskTexture;
   ${adjustmentUniformDeclarations("u")}
   uniform float uImageUvOffsetX;
   uniform float uImageUvOffsetY;
@@ -444,6 +461,11 @@ const fragment = `
 
 export type AdjustmentFilter = Filter & {
   imageSprite: Sprite | null;
+  brushAtlasCanvas: HTMLCanvasElement;
+  brushAtlasTexture: Texture;
+  editState: PhotoEditState;
+  imageWidth: number;
+  imageHeight: number;
   resources: {
     adjustmentUniforms: {
       uniforms: Record<string, number>;
@@ -560,6 +582,8 @@ function setDevelopUniforms(uniforms: Record<string, number>, editState: PhotoEd
 }
 
 export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFilter {
+  const brushAtlasCanvas = createBrushAtlasCanvas(PREVIEW_BRUSH_CELL_SIZE);
+  const brushAtlasTexture = Texture.from(brushAtlasCanvas);
   const resources: Record<string, { value: number; type: "f32" }> = {
     ...defineAdjustmentUniforms("u", editState.adjustments),
     ...defineDevelopUniforms(editState),
@@ -574,7 +598,7 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     const mask = editState.masks[index];
     const prefix = `uMask${index}`;
     resources[`${prefix}Active`] = { value: mask ? 1 : 0, type: "f32" };
-    resources[`${prefix}Type`] = { value: mask?.type === "radial-gradient" ? 1 : 0, type: "f32" };
+    resources[`${prefix}Type`] = { value: mask?.type === "brush" ? 2 : mask?.type === "radial-gradient" ? 1 : 0, type: "f32" };
     resources[`${prefix}Inverted`] = { value: mask?.inverted ? 1 : 0, type: "f32" };
     resources[`${prefix}StartX`] = { value: mask?.type === "linear-gradient" ? mask.startX : 0, type: "f32" };
     resources[`${prefix}StartY`] = { value: mask?.type === "linear-gradient" ? mask.startY : 0, type: "f32" };
@@ -585,18 +609,25 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     resources[`${prefix}CenterY`] = { value: mask?.type === "radial-gradient" ? mask.centerY : 0, type: "f32" };
     resources[`${prefix}RadiusX`] = { value: mask?.type === "radial-gradient" ? mask.radiusX : 0, type: "f32" };
     resources[`${prefix}RadiusY`] = { value: mask?.type === "radial-gradient" ? mask.radiusY : 0, type: "f32" };
+    resources[`${prefix}Density`] = { value: mask?.type === "brush" ? mask.density : 0, type: "f32" };
     Object.assign(resources, defineAdjustmentUniforms(prefix, mask?.adjustments ?? editState.adjustments));
   }
   const filter = new Filter({
     glProgram: GlProgram.from({ vertex, fragment, name: "lumatic-adjustment-filter" }),
     resources: {
       adjustmentUniforms: resources,
+      uBrushMaskTexture: brushAtlasTexture.source,
       imageUniforms: {
         uImageMatrix: { value: new Matrix(), type: "mat3x3<f32>" },
       },
     },
   }) as AdjustmentFilter;
   filter.imageSprite = null;
+  filter.brushAtlasCanvas = brushAtlasCanvas;
+  filter.brushAtlasTexture = brushAtlasTexture;
+  filter.editState = editState;
+  filter.imageWidth = 1;
+  filter.imageHeight = 1;
   const applyFilter = filter.apply.bind(filter);
   filter.apply = (filterManager, input, output, clearMode) => {
     if (filter.imageSprite) {
@@ -611,6 +642,7 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
 }
 
 export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEditState): void {
+  filter.editState = editState;
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   setAdjustmentUniforms(uniforms, "u", editState.adjustments);
   setDevelopUniforms(uniforms, editState);
@@ -618,7 +650,7 @@ export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEdi
     const mask = editState.masks[index];
     const prefix = `uMask${index}`;
     uniforms[`${prefix}Active`] = mask ? 1 : 0;
-    uniforms[`${prefix}Type`] = mask?.type === "radial-gradient" ? 1 : 0;
+    uniforms[`${prefix}Type`] = mask?.type === "brush" ? 2 : mask?.type === "radial-gradient" ? 1 : 0;
     uniforms[`${prefix}Inverted`] = mask?.inverted ? 1 : 0;
     uniforms[`${prefix}StartX`] = mask?.type === "linear-gradient" ? mask.startX : 0;
     uniforms[`${prefix}StartY`] = mask?.type === "linear-gradient" ? mask.startY : 0;
@@ -629,14 +661,38 @@ export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEdi
     uniforms[`${prefix}CenterY`] = mask?.type === "radial-gradient" ? mask.centerY : 0;
     uniforms[`${prefix}RadiusX`] = mask?.type === "radial-gradient" ? mask.radiusX : 0;
     uniforms[`${prefix}RadiusY`] = mask?.type === "radial-gradient" ? mask.radiusY : 0;
+    uniforms[`${prefix}Density`] = mask?.type === "brush" ? mask.density : 0;
     if (mask) setAdjustmentUniforms(uniforms, prefix, mask.adjustments);
   }
+  renderBrushMaskAtlas(filter.brushAtlasCanvas, editState, filter.imageWidth, filter.imageHeight);
+  filter.brushAtlasTexture.source.update();
 }
 
 export function setFilterImageSize(filter: AdjustmentFilter, width: number, height: number): void {
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   uniforms.uImageWidth = Math.max(1, width);
   uniforms.uImageHeight = Math.max(1, height);
+  filter.imageWidth = Math.max(1, width);
+  filter.imageHeight = Math.max(1, height);
+  renderBrushMaskAtlas(filter.brushAtlasCanvas, filter.editState, filter.imageWidth, filter.imageHeight);
+  filter.brushAtlasTexture.source.update();
+}
+
+export function setFilterBrushAtlasResolution(filter: AdjustmentFilter, cellSize: number): void {
+  const previousTexture = filter.brushAtlasTexture;
+  filter.brushAtlasCanvas = createBrushAtlasCanvas(cellSize);
+  filter.brushAtlasTexture = Texture.from(filter.brushAtlasCanvas);
+  filter.resources.uBrushMaskTexture = filter.brushAtlasTexture.source;
+  previousTexture.destroy(true);
+  renderBrushMaskAtlas(filter.brushAtlasCanvas, filter.editState, filter.imageWidth, filter.imageHeight);
+  filter.brushAtlasTexture.source.update();
+}
+
+export function destroyAdjustmentFilter(filter: AdjustmentFilter): void {
+  const brushAtlasTexture = filter.brushAtlasTexture;
+  filter.resources.uBrushMaskTexture = Texture.EMPTY.source;
+  filter.destroy();
+  brushAtlasTexture.destroy(true);
 }
 
 export function setFilterImageSprite(filter: AdjustmentFilter, sprite: Sprite): void {

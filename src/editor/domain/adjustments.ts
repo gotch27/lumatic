@@ -1,4 +1,4 @@
-import type { AdjustmentKey, AdjustmentValues, GradientMask, LinearGradientMask, PhotoEditState } from "./types";
+import type { AdjustmentKey, AdjustmentValues, EditorMask, LinearGradientMask, PhotoEditState } from "./types";
 import {
   cloneColorGrading,
   cloneColorMix,
@@ -68,8 +68,18 @@ export function createDefaultEditState(): PhotoEditState {
   };
 }
 
-export function cloneMask<T extends GradientMask>(mask: T): T {
-  return { ...mask, adjustments: { ...mask.adjustments } };
+export function cloneMask<T extends EditorMask>(mask: T): T {
+  if (mask.type === "brush") {
+    return {
+      ...mask,
+      adjustments: { ...mask.adjustments },
+      strokes: mask.strokes.map((stroke) => ({
+        ...stroke,
+        points: stroke.points.map((point) => ({ ...point })),
+      })),
+    } as T;
+  }
+  return { ...mask, adjustments: { ...mask.adjustments } } as T;
 }
 
 export function cloneEditState(editState: PhotoEditState): PhotoEditState {
@@ -113,17 +123,38 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
     },
     effects: { ...createDefaultEffects(), ...(editState?.effects ?? {}) },
     detail: { ...createDefaultDetail(), ...(editState?.detail ?? {}) },
-    masks: (editState?.masks ?? []).flatMap<GradientMask>((mask) => {
+    masks: (editState?.masks ?? []).flatMap<EditorMask>((mask) => {
       const shared = {
         ...mask,
         inverted: mask.inverted === true,
-        feather: clampNormalized(mask.feather ?? 0.65),
         adjustments: { ...DEFAULT_ADJUSTMENTS, ...mask.adjustments },
       };
+      if (mask.type === "brush") {
+        return [{
+          ...shared,
+          type: "brush" as const,
+          size: Math.max(0.01, clampNormalized(mask.size ?? 0.18)),
+          feather: clampNormalized(mask.feather ?? 0.5),
+          flow: Math.max(0.01, clampNormalized(mask.flow ?? 0.5)),
+          density: Math.max(0.01, clampNormalized(mask.density ?? 1)),
+          strokes: (mask.strokes ?? []).map((stroke) => ({
+            ...stroke,
+            mode: stroke.mode === "erase" ? "erase" as const : "add" as const,
+            size: Math.max(0.01, clampNormalized(stroke.size ?? mask.size ?? 0.18)),
+            feather: clampNormalized(stroke.feather ?? mask.feather ?? 0.5),
+            flow: Math.max(0.01, clampNormalized(stroke.flow ?? mask.flow ?? 0.5)),
+            points: (stroke.points ?? []).map((point) => ({
+              x: roundGradientCoordinate(point.x),
+              y: roundGradientCoordinate(point.y),
+            })),
+          })).filter((stroke) => stroke.points.length > 0),
+        }];
+      }
       if (mask.type === "radial-gradient") {
         return [{
           ...shared,
           type: "radial-gradient" as const,
+          feather: clampNormalized(mask.feather ?? 0.65),
           centerX: roundGradientCoordinate(mask.centerX),
           centerY: roundGradientCoordinate(mask.centerY),
           radiusX: Math.max(0.005, Math.abs(roundGradientCoordinate(mask.radiusX))),
@@ -134,6 +165,7 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
       return [{
         ...shared,
         type: "linear-gradient" as const,
+        feather: clampNormalized(mask.feather ?? 0.65),
         startX: roundGradientCoordinate(mask.startX),
         startY: roundGradientCoordinate(mask.startY),
         endX: roundGradientCoordinate(mask.endX),

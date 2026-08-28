@@ -1,7 +1,11 @@
 import { clampGradientGeometry, createDefaultAdjustments } from "./adjustments";
-import type { LinearGradientMask, RadialGradientMask } from "./types";
+import type { BrushMask, BrushPoint, LinearGradientMask, RadialGradientMask } from "./types";
 
 export const MAX_GRADIENT_MASKS = 8;
+export const DEFAULT_BRUSH_SIZE = 0.18;
+export const DEFAULT_BRUSH_FEATHER = 0.5;
+export const DEFAULT_BRUSH_FLOW = 0.5;
+export const DEFAULT_BRUSH_DENSITY = 1;
 
 export type LinearGradientGeometry = Pick<
   LinearGradientMask,
@@ -90,4 +94,26 @@ export function sameRadialGradientGeometry(a: RadialGradientGeometry, b: RadialG
     && a.radiusX === b.radiusX
     && a.radiusY === b.radiusY
     && a.feather === b.feather;
+}
+
+export function createBrushMask(id: string, index: number): BrushMask {
+  return {
+    id,
+    type: "brush",
+    name: `Brush ${index}`,
+    inverted: false,
+    size: DEFAULT_BRUSH_SIZE,
+    feather: DEFAULT_BRUSH_FEATHER,
+    flow: DEFAULT_BRUSH_FLOW,
+    density: DEFAULT_BRUSH_DENSITY,
+    strokes: [],
+    adjustments: createDefaultAdjustments(),
+  };
+}
+
+export function normalizeBrushPoint(point: BrushPoint): BrushPoint {
+  return {
+    x: Number(point.x.toFixed(4)),
+    y: Number(point.y.toFixed(4)),
+  };
 }

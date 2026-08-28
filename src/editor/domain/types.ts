@@ -76,31 +76,55 @@ export interface DetailValues {
   colorNoiseSmoothness: number;
 }
 
-interface BaseGradientMask {
+interface BaseMask {
   id: string;
   name: string;
   inverted: boolean;
-  feather: number;
   adjustments: AdjustmentValues;
 }
 
-export interface LinearGradientMask extends BaseGradientMask {
+export interface LinearGradientMask extends BaseMask {
   type: "linear-gradient";
+  feather: number;
   startX: number;
   startY: number;
   endX: number;
   endY: number;
 }
 
-export interface RadialGradientMask extends BaseGradientMask {
+export interface RadialGradientMask extends BaseMask {
   type: "radial-gradient";
+  feather: number;
   centerX: number;
   centerY: number;
   radiusX: number;
   radiusY: number;
 }
 
-export type GradientMask = LinearGradientMask | RadialGradientMask;
+export interface BrushPoint {
+  x: number;
+  y: number;
+}
+
+export interface BrushStroke {
+  id: string;
+  mode: "add" | "erase";
+  size: number;
+  feather: number;
+  flow: number;
+  points: BrushPoint[];
+}
+
+export interface BrushMask extends BaseMask {
+  type: "brush";
+  size: number;
+  feather: number;
+  flow: number;
+  density: number;
+  strokes: BrushStroke[];
+}
+
+export type EditorMask = LinearGradientMask | RadialGradientMask | BrushMask;
 
 export interface PhotoEditState {
   adjustments: AdjustmentValues;
@@ -109,7 +133,7 @@ export interface PhotoEditState {
   colorGrading: ColorGrading;
   effects: EffectValues;
   detail: DetailValues;
-  masks: GradientMask[];
+  masks: EditorMask[];
 }
 
 export interface PhotoRecord {

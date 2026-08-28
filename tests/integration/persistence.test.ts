@@ -110,6 +110,54 @@ describe("local workspace persistence", () => {
     });
   });
 
+  it("persists normalized brush paths and settings", async () => {
+    const state = createDefaultEditState();
+    state.masks.push({
+      id: "brush-1",
+      type: "brush",
+      name: "Brush 1",
+      inverted: false,
+      size: 0.2,
+      feather: 0.55,
+      flow: 0.6,
+      density: 0.8,
+      strokes: [{
+        id: "stroke-1",
+        mode: "add",
+        size: 0.2,
+        feather: 0.55,
+        flow: 0.6,
+        points: [{ x: 0.12345, y: 0.67891 }, { x: 0.4, y: 0.5 }],
+      }],
+      adjustments: { ...createDefaultAdjustments(), exposure: 0.5 },
+    });
+    const photo: PhotoRecord = {
+      id: "brush-photo",
+      order: 0,
+      name: "brush.png",
+      mimeType: "image/png",
+      size: 3,
+      width: 100,
+      height: 80,
+      createdAt: 1,
+      updatedAt: 1,
+      editState: state,
+      historyCursor: 0,
+    };
+    await saveImportedPhoto(photo, {
+      photoId: photo.id,
+      original: new Blob(["a"]),
+      preview: new Blob(["b"]),
+      thumbnail: new Blob(["c"]),
+    }, photo.id);
+    const restored = await loadWorkspace();
+    expect(restored.photos[0].editState.masks[0]).toMatchObject({
+      type: "brush",
+      density: 0.8,
+      strokes: [{ points: [{ x: 0.12345, y: 0.67891 }, { x: 0.4, y: 0.5 }] }],
+    });
+  });
+
   it("persists curve, color, effects, and detail settings together", async () => {
     const state = createDefaultEditState();
     state.toneCurve.rgb = [{ x: 0, y: 0 }, { x: 0.3, y: 0.2 }, { x: 0.62, y: 0.72 }, { x: 1, y: 1 }];

@@ -4,6 +4,7 @@ import type { PhotoEditState } from "@/editor/domain/types";
 
 import {
   createAdjustmentFilter,
+  destroyAdjustmentFilter,
   setFilterEditState,
   setFilterImageSprite,
   setFilterImageSize,
@@ -156,6 +157,8 @@ export class PhotoRenderer {
     this.resizeObserver = null;
     this.textureCache.forEach((texture) => texture.destroy(true));
     this.textureCache.clear();
+    if (this.sprite) this.sprite.filters = [];
+    if (this.filter) destroyAdjustmentFilter(this.filter);
     this.application?.destroy({ removeView: true }, { children: true });
     this.application = null;
     this.sprite = null;

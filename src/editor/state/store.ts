@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type {
   AdjustmentKey,
   HistoryEvent,
-  GradientMask,
+  EditorMask,
   PhotoEditState,
   RuntimePhoto,
   SaveStatus,
@@ -12,7 +12,7 @@ import type {
 export type EditorDraft =
   | { kind: "global-adjustment"; photoId: string; key: AdjustmentKey; baselineValue: number }
   | { kind: "mask-adjustment"; photoId: string; maskId: string; key: AdjustmentKey; baselineValue: number }
-  | { kind: "mask-geometry"; photoId: string; maskId: string; baseline: GradientMask | null }
+  | { kind: "mask-geometry"; photoId: string; maskId: string; baseline: EditorMask | null }
   | { kind: "develop-setting"; photoId: string; target: string; baseline: PhotoEditState };
 
 export interface Notice {
@@ -28,7 +28,8 @@ export interface EditorStore {
   historyByPhoto: Record<string, HistoryEvent[]>;
   draft: EditorDraft | null;
   selectedMaskId: string | null;
-  maskToolMode: "idle" | "create-linear" | "create-radial";
+  maskToolMode: "idle" | "create-linear" | "create-radial" | "paint-brush";
+  brushPaintMode: "add" | "erase";
   saveStatus: SaveStatus;
   isImporting: boolean;
   importCompleted: number;
@@ -50,6 +51,7 @@ export const initialEditorState: EditorStore = {
   draft: null,
   selectedMaskId: null,
   maskToolMode: "idle",
+  brushPaintMode: "add",
   saveStatus: "idle",
   isImporting: false,
   importCompleted: 0,

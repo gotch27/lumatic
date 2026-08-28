@@ -290,6 +290,84 @@ test("draws, resizes, inverts, and restores a radial gradient mask", async ({ pa
   expect(cornerMean).toBeLessThan(centerMean - 20);
 });
 
+test("paints, erases, restores, and exports a brush mask", async ({ page }) => {
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
+  const source = await sharp({
+    create: {
+      width: 1000,
+      height: 1000,
+      channels: 4,
+      background: { r: 160, g: 160, b: 160, alpha: 1 },
+    },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({
+    name: "brush-source.png",
+    mimeType: "image/png",
+    buffer: source,
+  });
+  const stageLocator = page.getByTestId("photo-stage");
+  await expect(stageLocator).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Draw brush mask" }).click();
+  await expect(page.getByRole("button", { name: "Brush 1", exact: true })).toBeVisible();
+
+  const localExposure = page.getByLabel("Mask Exposure value");
+  await localExposure.fill("-1.5");
+  await localExposure.press("Tab");
+  await page.getByLabel("Brush Flow").getByRole("slider").press("End");
+  await expect(localExposure).toHaveValue("-1.5");
+
+  const stage = await stageLocator.boundingBox();
+  expect(stage).not.toBeNull();
+  const imageSize = Math.min(stage!.width - 56, stage!.height - 56, 1000);
+  const imageLeft = stage!.x + (stage!.width - imageSize) / 2;
+  const imageTop = stage!.y + (stage!.height - imageSize) / 2;
+  const centerY = imageTop + imageSize * 0.5;
+  await page.mouse.move(imageLeft + imageSize * 0.4, centerY);
+  await page.mouse.down();
+  await page.mouse.move(imageLeft + imageSize * 0.6, centerY, { steps: 12 });
+  await page.mouse.up();
+  await expect(page.getByTestId("brush-cursor")).toBeVisible();
+
+  await page.getByRole("tab", { name: /History/ }).click();
+  await expect(page.getByTestId("history-panel")).toContainText("Created Brush 1");
+  await expect(page.getByTestId("history-panel")).toContainText("Painted Brush 1");
+  await page.getByRole("tab", { name: /Masks/ }).click();
+
+  let downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  let download = await downloadPromise;
+  let path = await download.path();
+  expect(path).not.toBeNull();
+  const painted = await sharp(path!).png().toBuffer();
+  const paintedCenter = await sampledRedMean(painted, 500, 500, 31);
+  const paintedCorner = await sampledRedMean(painted, 40, 40, 31);
+  expect(paintedCenter).toBeLessThan(paintedCorner - 20);
+
+  await page.getByRole("button", { name: "Erase", exact: true }).click();
+  await page.mouse.move(imageLeft + imageSize * 0.4, centerY);
+  await page.mouse.down();
+  await page.mouse.move(imageLeft + imageSize * 0.6, centerY, { steps: 12 });
+  await page.mouse.up();
+
+  downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  download = await downloadPromise;
+  path = await download.path();
+  expect(path).not.toBeNull();
+  const erased = await sharp(path!).png().toBuffer();
+  const erasedCenter = await sampledRedMean(erased, 500, 500, 31);
+  expect(erasedCenter).toBeGreaterThan(paintedCenter + 20);
+
+  await page.reload();
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Brush 1", exact: true }).click();
+  await expect(page.getByLabel("Mask Exposure value")).toHaveValue("-1.5");
+  await expect(page.getByRole("group", { name: "Brush paint mode" }).getByRole("button", { name: "Add", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("edits curves, color, effects, and detail through the shared develop workflow", async ({ page }) => {
   test.setTimeout(EDITOR_TEST_TIMEOUT);
   const source = await sharp({

@@ -3,10 +3,13 @@ import { Application, Sprite, Texture } from "pixi.js";
 import type { RuntimePhoto } from "@/editor/domain/types";
 import {
   createAdjustmentFilter,
+  destroyAdjustmentFilter,
+  setFilterBrushAtlasResolution,
   setFilterImageRegion,
   setFilterImageSprite,
   setFilterImageSize,
 } from "@/editor/renderer/adjustmentShader";
+import { EXPORT_BRUSH_CELL_SIZE } from "@/editor/renderer/brushMaskAtlas";
 import { getOriginalAsset } from "@/editor/persistence/repository";
 
 const TILE_EDGE = 4088;
@@ -71,6 +74,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
     preserveDrawingBuffer: true,
   });
   const filter = createAdjustmentFilter(photo.editState);
+  setFilterBrushAtlasResolution(filter, EXPORT_BRUSH_CELL_SIZE);
   setFilterImageSize(filter, photo.width, photo.height);
 
   try {
@@ -122,6 +126,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
     const blob = await canvasToBlob(output, photo);
     downloadBlob(blob, editedFilename(photo));
   } finally {
+    destroyAdjustmentFilter(filter);
     application.destroy({ removeView: true }, { children: true });
   }
 }

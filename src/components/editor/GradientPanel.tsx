@@ -1,6 +1,6 @@
 "use client";
 
-import { Blend, CircleDashed, FlipHorizontal2, RotateCcw, Trash2, X } from "lucide-react";
+import { Blend, CircleDashed, Eraser, FlipHorizontal2, Paintbrush, RotateCcw, Trash2, X } from "lucide-react";
 import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { editorService } from "@/editor/commands/editorService";
 import { ADJUSTMENT_DEFINITIONS, DEFAULT_ADJUSTMENTS } from "@/editor/domain/adjustments";
 import type { AdjustmentDefinition } from "@/editor/domain/adjustments";
 import { getGradientGeometry, getRadialGradientGeometry, MAX_GRADIENT_MASKS } from "@/editor/domain/masks";
-import type { GradientMask, RuntimePhoto } from "@/editor/domain/types";
+import type { BrushMask, EditorMask, RuntimePhoto } from "@/editor/domain/types";
 import { useEditorStore } from "@/editor/state/store";
 
 function LocalAdjustmentControl({
@@ -18,7 +18,7 @@ function LocalAdjustmentControl({
   photo,
 }: {
   definition: AdjustmentDefinition;
-  mask: GradientMask;
+  mask: EditorMask;
   photo: RuntimePhoto;
 }) {
   const value = mask.adjustments[definition.key];
@@ -72,9 +72,41 @@ function LocalAdjustmentControl({
   );
 }
 
+function BrushSettingControl({
+  label,
+  mask,
+  photo,
+  setting,
+}: {
+  label: string;
+  mask: BrushMask;
+  photo: RuntimePhoto;
+  setting: "size" | "feather" | "flow" | "density";
+}) {
+  const value = mask[setting];
+  return (
+    <div className="adjustment-control">
+      <div className="mb-1 flex h-6 items-center justify-between">
+        <span className="text-xs text-zinc-300">{label}</span>
+        <span className="font-mono text-[10px] tabular-nums text-zinc-500">{Math.round(value * 100)}%</span>
+      </div>
+      <Slider
+        aria-label={`Brush ${label}`}
+        max={1}
+        min={setting === "feather" ? 0 : 0.01}
+        onValueChange={([next]) => editorService.previewBrushSetting(photo.id, mask.id, setting, next)}
+        onValueCommit={([next]) => editorService.commitBrushSetting(photo.id, mask.id, setting, next)}
+        step={0.01}
+        value={[value]}
+      />
+    </div>
+  );
+}
+
 export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
   const selectedMaskId = useEditorStore((state) => state.selectedMaskId);
   const maskToolMode = useEditorStore((state) => state.maskToolMode);
+  const brushPaintMode = useEditorStore((state) => state.brushPaintMode);
   const selectedMask = photo.editState.masks.find((mask) => mask.id === selectedMaskId) ?? null;
   const groups = useMemo(() => ({
     light: ADJUSTMENT_DEFINITIONS.filter((item) => item.group === "light"),
@@ -83,12 +115,21 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
   const selectTool = (tool: "create-linear" | "create-radial") => {
     editorService.setMaskToolMode(maskToolMode === tool ? "idle" : tool);
   };
+  const toggleBrush = () => {
+    if (maskToolMode === "paint-brush") {
+      editorService.setMaskToolMode("idle");
+    } else if (selectedMask?.type === "brush") {
+      editorService.setMaskToolMode("paint-brush");
+    } else {
+      editorService.beginBrushMask(photo.id);
+    }
+  };
 
   const previewFeather = (feather: number) => {
     if (!selectedMask) return;
     if (selectedMask.type === "linear-gradient") {
       editorService.previewLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather });
-    } else {
+    } else if (selectedMask.type === "radial-gradient") {
       editorService.previewRadialGradientGeometry(photo.id, selectedMask.id, { ...getRadialGradientGeometry(selectedMask), feather });
     }
   };
@@ -97,7 +138,7 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
     if (!selectedMask) return;
     if (selectedMask.type === "linear-gradient") {
       editorService.commitLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather });
-    } else {
+    } else if (selectedMask.type === "radial-gradient") {
       editorService.commitRadialGradientGeometry(photo.id, selectedMask.id, { ...getRadialGradientGeometry(selectedMask), feather });
     }
   };
@@ -109,7 +150,7 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
           <span className="text-[11px] font-medium text-zinc-400">Masks</span>
           <span className="font-mono text-[9px] text-zinc-600">{photo.editState.masks.length}/{MAX_GRADIENT_MASKS}</span>
         </div>
-        <div className="grid grid-cols-2 gap-1.5 px-2 pb-2">
+        <div className="grid grid-cols-3 gap-1 px-2 pb-2">
           <Button
             aria-label={maskToolMode === "create-linear" ? "Cancel linear gradient" : "Draw linear gradient"}
             disabled={photo.editState.masks.length >= MAX_GRADIENT_MASKS}
@@ -128,6 +169,15 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
           >
             {maskToolMode === "create-radial" ? <X className="size-3.5" /> : <CircleDashed className="size-3.5" />} Radial
           </Button>
+          <Button
+            aria-label={maskToolMode === "paint-brush" ? "Stop brush painting" : "Draw brush mask"}
+            disabled={photo.editState.masks.length >= MAX_GRADIENT_MASKS && selectedMask?.type !== "brush"}
+            onClick={toggleBrush}
+            size="sm"
+            variant={maskToolMode === "paint-brush" ? "secondary" : "ghost"}
+          >
+            {maskToolMode === "paint-brush" ? <X className="size-3.5" /> : <Paintbrush className="size-3.5" />} Brush
+          </Button>
         </div>
         <div className="space-y-1 px-2">
           {photo.editState.masks.map((mask) => (
@@ -135,10 +185,15 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
               aria-pressed={mask.id === selectedMaskId}
               className={`mask-list-item ${mask.id === selectedMaskId ? "is-active" : ""}`}
               key={mask.id}
-              onClick={() => editorService.selectMask(mask.id)}
+              onClick={() => {
+                editorService.selectMask(mask.id);
+                if (mask.type === "brush") editorService.setMaskToolMode("paint-brush");
+              }}
               type="button"
             >
-              {mask.type === "linear-gradient" ? <Blend className="size-3.5" /> : <CircleDashed className="size-3.5" />}
+              {mask.type === "linear-gradient" && <Blend className="size-3.5" />}
+              {mask.type === "radial-gradient" && <CircleDashed className="size-3.5" />}
+              {mask.type === "brush" && <Paintbrush className="size-3.5" />}
               <span className="min-w-0 flex-1 truncate text-left">{mask.name}</span>
               <span className="size-1.5 rounded-full bg-zinc-500" />
             </button>
@@ -166,7 +221,36 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
               <span className="flex items-center gap-2"><FlipHorizontal2 className="size-3.5" /> Invert mask</span>
               <span className="mask-invert-switch"><span /></span>
             </button>
-            <div className="adjustment-control">
+            {selectedMask.type === "brush" && (
+              <div className="space-y-3.5">
+                <div className="brush-mode-control" role="group" aria-label="Brush paint mode">
+                  <button
+                    aria-pressed={brushPaintMode === "add"}
+                    className={brushPaintMode === "add" ? "is-active" : ""}
+                    onClick={() => editorService.setBrushPaintMode("add")}
+                    type="button"
+                  ><Paintbrush className="size-3.5" /> Add</button>
+                  <button
+                    aria-pressed={brushPaintMode === "erase"}
+                    className={brushPaintMode === "erase" ? "is-active" : ""}
+                    onClick={() => editorService.setBrushPaintMode("erase")}
+                    type="button"
+                  ><Eraser className="size-3.5" /> Erase</button>
+                </div>
+                <BrushSettingControl label="Size" mask={selectedMask} photo={photo} setting="size" />
+                <BrushSettingControl label="Feather" mask={selectedMask} photo={photo} setting="feather" />
+                <BrushSettingControl label="Flow" mask={selectedMask} photo={photo} setting="flow" />
+                <BrushSettingControl label="Density" mask={selectedMask} photo={photo} setting="density" />
+                <Button
+                  className="w-full"
+                  disabled={selectedMask.strokes.length === 0}
+                  onClick={() => editorService.clearBrushMask(photo.id, selectedMask.id)}
+                  size="sm"
+                  variant="ghost"
+                >Clear brush mask</Button>
+              </div>
+            )}
+            {selectedMask.type !== "brush" && <div className="adjustment-control">
               <div className="mb-1 flex h-6 items-center justify-between">
                 <span className="text-xs text-zinc-300">Feather</span>
                 <span className="font-mono text-[10px] tabular-nums text-zinc-500">{Math.round(selectedMask.feather * 100)}%</span>
@@ -180,7 +264,7 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
                 step={0.01}
                 value={[selectedMask.feather]}
               />
-            </div>
+            </div>}
           </section>
 
           <section className="panel-section border-t border-white/[0.06]">

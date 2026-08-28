@@ -98,7 +98,10 @@ button:disabled { cursor: default; }
 .photo-canvas-host { position: absolute; inset: 0; cursor: grab; touch-action: none; }
 .photo-canvas-host:active { cursor: grabbing; }
 .photo-canvas-host.is-drawing-mask, .photo-canvas-host.is-drawing-mask:active { cursor: crosshair; }
+.photo-canvas-host.is-painting-brush, .photo-canvas-host.is-painting-brush:active { cursor: none; }
 .photo-renderer-canvas { display: block; width: 100%; height: 100%; }
+.brush-mask-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.brush-cursor { position: absolute; z-index: 6; transform: translate(-50%, -50%); border: 1px solid rgba(255,255,255,.92); border-radius: 999px; box-shadow: 0 0 0 1px rgba(0,0,0,.72), inset 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
 .gradient-overlay { position: absolute; inset: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .gradient-axis { stroke: rgba(212,212,212,.42); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .gradient-axis.is-selected { stroke: #f1f1f1; }
@@ -149,6 +152,10 @@ button:disabled { cursor: default; }
 .mask-invert-switch > span { width: 11px; height: 11px; border-radius: 999px; background: #a1a1aa; transition: transform .15s, background .15s; }
 .mask-invert-toggle.is-active .mask-invert-switch { background: #e4e4e7; }
 .mask-invert-toggle.is-active .mask-invert-switch > span { transform: translateX(11px); background: #18181b; }
+.brush-mode-control { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; border-radius: 6px; padding: 2px; background: #131313; }
+.brush-mode-control button { display: flex; height: 27px; align-items: center; justify-content: center; gap: 6px; border-radius: 4px; color: #737373; font-size: 10px; }
+.brush-mode-control button:hover { color: #c6c6c6; }
+.brush-mode-control button.is-active { background: #2a2a2a; color: #e5e5e5; }
 
 .drop-overlay { position: fixed; inset: var(--topbar-height) 0 var(--filmstrip-height); z-index: 40; display: grid; place-items: center; background: rgba(10,10,10,.82); backdrop-filter: blur(10px); }
 .drop-card { display: flex; min-width: 280px; flex-direction: column; align-items: center; gap: 8px; border: 1px dashed #505050; border-radius: 10px; padding: 34px; color: #e5e5e5; background: #1b1b1b; box-shadow: 0 20px 60px rgba(0,0,0,.4); }

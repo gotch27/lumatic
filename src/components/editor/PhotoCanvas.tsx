@@ -12,7 +12,7 @@ import {
   type LinearGradientGeometry,
   type RadialGradientGeometry,
 } from "@/editor/domain/masks";
-import type { GradientMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
+import type { BrushPoint, EditorMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
 import { PhotoRenderer } from "@/editor/renderer/PhotoRenderer";
 import { useEditorStore } from "@/editor/state/store";
 
@@ -60,7 +60,13 @@ interface RadialOverlayMask {
 
 type OverlayMask = LinearOverlayMask | RadialOverlayMask;
 
-function latestMask(photoId: string, maskId: string): GradientMask | null {
+interface BrushDrag {
+  maskId: string;
+  strokeId: string;
+  lastPoint: BrushPoint;
+}
+
+function latestMask(photoId: string, maskId: string): EditorMask | null {
   const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
   return photo?.editState.masks.find((mask) => mask.id === maskId) ?? null;
 }
@@ -71,14 +77,19 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   const panRef = useRef<{ x: number; y: number } | null>(null);
   const createDragRef = useRef<CreateDrag | null>(null);
   const maskDragRef = useRef<MaskDrag | null>(null);
+  const brushDragRef = useRef<BrushDrag | null>(null);
+  const brushOverlayRef = useRef<HTMLCanvasElement>(null);
   const maskToolMode = useEditorStore((state) => state.maskToolMode);
   const selectedMaskId = useEditorStore((state) => state.selectedMaskId);
+  const selectedMask = photo.editState.masks.find((mask) => mask.id === selectedMaskId);
+  const selectedBrush = selectedMask?.type === "brush" ? selectedMask : null;
   const [ready, setReady] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [error, setError] = useState<string | null>(null);
   const [transformVersion, setTransformVersion] = useState(0);
   const [overlayMasks, setOverlayMasks] = useState<OverlayMask[]>([]);
   const [imageTopLeft, setImageTopLeft] = useState<{ x: number; y: number } | null>(null);
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; diameter: number } | null>(null);
 
   const pointFromEvent = (clientX: number, clientY: number) => {
     const host = hostRef.current;
@@ -151,6 +162,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         const end = renderer.imageToScreen(mask.endX, mask.endY);
         return start && end ? [{ type: "linear-gradient", mask, start, end }] : [];
       }
+      if (mask.type !== "radial-gradient") return [];
       const center = renderer.imageToScreen(mask.centerX, mask.centerY);
       const horizontal = renderer.imageToScreen(mask.centerX + mask.radiusX, mask.centerY);
       const vertical = renderer.imageToScreen(mask.centerX, mask.centerY + mask.radiusY);
@@ -163,6 +175,68 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       }] : [];
     }));
   }, [photo.editState.masks, showOriginal, transformVersion]);
+
+  useEffect(() => {
+    const canvas = brushOverlayRef.current;
+    const host = hostRef.current;
+    const renderer = rendererRef.current;
+    if (!canvas || !host || !renderer) return;
+    const width = host.clientWidth;
+    const height = host.clientHeight;
+    const density = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(width * density));
+    canvas.height = Math.max(1, Math.round(height * density));
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const output = canvas.getContext("2d");
+    if (!output) return;
+    output.setTransform(density, 0, 0, density, 0, 0);
+    output.clearRect(0, 0, width, height);
+    if (!selectedBrush || showOriginal) return;
+
+    const maskCanvas = document.createElement("canvas");
+    maskCanvas.width = canvas.width;
+    maskCanvas.height = canvas.height;
+    const maskContext = maskCanvas.getContext("2d");
+    if (!maskContext) return;
+    maskContext.setTransform(density, 0, 0, density, 0, 0);
+    const imageStart = renderer.imageToScreen(0, 0);
+    const imageEnd = renderer.imageToScreen(1, 1);
+    if (!imageStart || !imageEnd) return;
+    const displayedShortEdge = Math.min(Math.abs(imageEnd.x - imageStart.x), Math.abs(imageEnd.y - imageStart.y));
+
+    for (const stroke of selectedBrush.strokes) {
+      maskContext.globalCompositeOperation = stroke.mode === "erase" ? "destination-out" : "source-over";
+      const radius = Math.max(0.5, stroke.size * displayedShortEdge * 0.5);
+      const hardEdge = Math.min(0.999, Math.max(0, 1 - stroke.feather));
+      for (const point of stroke.points) {
+        const screen = renderer.imageToScreen(point.x, point.y);
+        if (!screen) continue;
+        const gradient = maskContext.createRadialGradient(screen.x, screen.y, 0, screen.x, screen.y, radius);
+        gradient.addColorStop(0, `rgba(255,255,255,${stroke.flow})`);
+        gradient.addColorStop(hardEdge, `rgba(255,255,255,${stroke.flow})`);
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        maskContext.fillStyle = gradient;
+        maskContext.beginPath();
+        maskContext.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        maskContext.fill();
+      }
+    }
+
+    output.save();
+    if (selectedBrush.inverted) {
+      output.fillStyle = "rgba(239,68,68,.28)";
+      output.fillRect(imageStart.x, imageStart.y, imageEnd.x - imageStart.x, imageEnd.y - imageStart.y);
+      output.globalCompositeOperation = "destination-out";
+      output.drawImage(maskCanvas, 0, 0, width, height);
+    } else {
+      output.drawImage(maskCanvas, 0, 0, width, height);
+      output.globalCompositeOperation = "source-in";
+      output.fillStyle = "rgba(239,68,68,.38)";
+      output.fillRect(0, 0, width, height);
+    }
+    output.restore();
+  }, [photo.editState.masks, selectedBrush, showOriginal, transformVersion]);
 
   useEffect(() => {
     const renderer = rendererRef.current;
@@ -180,9 +254,30 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     setTransformVersion((version) => version + 1);
   };
 
+  const updateBrushCursor = (clientX: number, clientY: number) => {
+    const host = hostRef.current;
+    const renderer = rendererRef.current;
+    if (!host || !renderer || maskToolMode !== "paint-brush" || !selectedBrush) {
+      setBrushCursor(null);
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const imageStart = renderer.imageToScreen(0, 0);
+    const imageEnd = renderer.imageToScreen(1, 1);
+    if (!imageStart || !imageEnd) return;
+    setBrushCursor({
+      x: clientX - bounds.left,
+      y: clientY - bounds.top,
+      diameter: selectedBrush.size * Math.min(
+        Math.abs(imageEnd.x - imageStart.x),
+        Math.abs(imageEnd.y - imageStart.y),
+      ),
+    });
+  };
+
   const startMaskDrag = (
     event: ReactPointerEvent<SVGElement>,
-    mask: GradientMask,
+    mask: EditorMask,
     kind: "start" | "end" | "center" | "radius-x" | "radius-y" | "move",
   ) => {
     const point = pointFromEvent(event.clientX, event.clientY);
@@ -270,9 +365,18 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   return (
     <div className="photo-stage" data-testid="photo-stage">
       <div
-        className={`photo-canvas-host ${maskToolMode !== "idle" ? "is-drawing-mask" : ""}`}
+        className={`photo-canvas-host ${maskToolMode !== "idle" ? "is-drawing-mask" : ""} ${maskToolMode === "paint-brush" ? "is-painting-brush" : ""}`}
         onPointerDown={(event) => {
-          if (maskToolMode !== "idle") {
+          if (maskToolMode === "paint-brush") {
+            const point = pointFromEvent(event.clientX, event.clientY);
+            if (!point || !selectedBrush) return;
+            const strokeId = editorService.beginBrushStroke(photo.id, selectedBrush.id, point);
+            if (!strokeId) return;
+            brushDragRef.current = { maskId: selectedBrush.id, strokeId, lastPoint: point };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            return;
+          }
+          if (maskToolMode === "create-linear" || maskToolMode === "create-radial") {
             const point = pointFromEvent(event.clientX, event.clientY);
             if (!point) return;
             const isLinear = maskToolMode === "create-linear";
@@ -294,6 +398,28 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
+          updateBrushCursor(event.clientX, event.clientY);
+          const brushDrag = brushDragRef.current;
+          if (brushDrag) {
+            const point = pointFromEvent(event.clientX, event.clientY);
+            const mask = latestMask(photo.id, brushDrag.maskId);
+            if (!point || mask?.type !== "brush") return;
+            const dx = (point.x - brushDrag.lastPoint.x) * photo.width;
+            const dy = (point.y - brushDrag.lastPoint.y) * photo.height;
+            const distance = Math.hypot(dx, dy);
+            const spacing = Math.max(1, mask.size * Math.min(photo.width, photo.height) * 0.12);
+            const steps = Math.max(1, Math.ceil(distance / spacing));
+            const points = Array.from({ length: steps }, (_, index) => {
+              const progress = (index + 1) / steps;
+              return {
+                x: brushDrag.lastPoint.x + (point.x - brushDrag.lastPoint.x) * progress,
+                y: brushDrag.lastPoint.y + (point.y - brushDrag.lastPoint.y) * progress,
+              };
+            });
+            editorService.previewBrushStroke(photo.id, brushDrag.maskId, brushDrag.strokeId, points);
+            brushDrag.lastPoint = point;
+            return;
+          }
           const createDrag = createDragRef.current;
           if (createDrag) {
             const point = pointFromEvent(event.clientX, event.clientY);
@@ -329,6 +455,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           setTransformVersion((version) => version + 1);
         }}
         onPointerUp={(event) => {
+          const brushDrag = brushDragRef.current;
+          if (brushDrag) {
+            editorService.commitBrushStroke(photo.id, brushDrag.maskId);
+            brushDragRef.current = null;
+          }
           const createDrag = createDragRef.current;
           if (createDrag) {
             const mask = latestMask(photo.id, createDrag.maskId);
@@ -342,6 +473,9 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           panRef.current = null;
           event.currentTarget.releasePointerCapture(event.pointerId);
         }}
+        onPointerLeave={() => {
+          if (!brushDragRef.current) setBrushCursor(null);
+        }}
         onWheel={(event) => {
           event.preventDefault();
           const bounds = event.currentTarget.getBoundingClientRect();
@@ -351,6 +485,20 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         }}
         ref={hostRef}
       />
+
+      <canvas aria-hidden="true" className="brush-mask-overlay" data-testid="brush-mask-overlay" ref={brushOverlayRef} />
+      {brushCursor && maskToolMode === "paint-brush" && (
+        <div
+          className="brush-cursor"
+          data-testid="brush-cursor"
+          style={{
+            height: Math.max(4, brushCursor.diameter),
+            left: brushCursor.x,
+            top: brushCursor.y,
+            width: Math.max(4, brushCursor.diameter),
+          }}
+        />
+      )}
 
       {ready && overlayMasks.length > 0 && (
         <svg aria-label="Gradient overlay" className="gradient-overlay" data-testid="gradient-overlay">
@@ -496,7 +644,9 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
 
       {maskToolMode !== "idle" && (
         <div className="mask-tool-badge">
-          Drag on photo to draw {maskToolMode === "create-linear" ? "linear" : "radial"} gradient · Esc to cancel
+          {maskToolMode === "paint-brush"
+            ? "Paint on the photo · [ and ] resize · Esc to stop"
+            : `Drag on photo to draw ${maskToolMode === "create-linear" ? "linear" : "radial"} gradient · Esc to cancel`}
         </div>
       )}
       {!ready && !error && (

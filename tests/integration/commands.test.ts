@@ -167,6 +167,45 @@ describe("editor command service", () => {
     expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ inverted: true });
   });
 
+  it("paints, erases, configures, and replays a brush mask", () => {
+    const maskId = editorService.beginBrushMask("photo-1")!;
+    const strokeId = editorService.beginBrushStroke("photo-1", maskId, { x: 0.2, y: 0.3 })!;
+    editorService.previewBrushStroke("photo-1", maskId, strokeId, [
+      { x: 0.4, y: 0.45 },
+      { x: 0.6, y: 0.5 },
+    ]);
+    editorService.commitBrushStroke("photo-1", maskId);
+    editorService.previewBrushSetting("photo-1", maskId, "density", 0.7);
+    editorService.commitBrushSetting("photo-1", maskId, "density", 0.7);
+    editorService.setBrushPaintMode("erase");
+    const eraseId = editorService.beginBrushStroke("photo-1", maskId, { x: 0.4, y: 0.45 })!;
+    editorService.previewBrushStroke("photo-1", maskId, eraseId, [{ x: 0.45, y: 0.45 }]);
+    editorService.commitBrushStroke("photo-1", maskId);
+
+    let mask = useEditorStore.getState().photos[0].editState.masks[0];
+    expect(mask).toMatchObject({ type: "brush", density: 0.7 });
+    if (mask.type !== "brush") throw new Error("Expected brush mask");
+    expect(mask.strokes).toHaveLength(2);
+    expect(mask.strokes[0].mode).toBe("add");
+    expect(mask.strokes[0].points[0]).toEqual({ x: 0.2, y: 0.3 });
+    expect(mask.strokes[1]).toMatchObject({ mode: "erase" });
+    expect(useEditorStore.getState().historyByPhoto["photo-1"].map((event) => event.type)).toEqual([
+      "mask.created",
+      "mask.geometry.changed",
+      "mask.geometry.changed",
+      "mask.geometry.changed",
+    ]);
+
+    editorService.undo("photo-1");
+    mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "brush") throw new Error("Expected brush mask");
+    expect(mask.strokes).toHaveLength(1);
+    editorService.redo("photo-1");
+    mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "brush") throw new Error("Expected brush mask");
+    expect(mask.strokes).toHaveLength(2);
+  });
+
   it("undoes and redoes mask geometry, local edits, and deletion", () => {
     const maskId = editorService.beginLinearGradient("photo-1", 0.1, 0.1)!;
     let mask = useEditorStore.getState().photos[0].editState.masks[0];

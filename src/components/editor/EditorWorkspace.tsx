@@ -95,6 +95,15 @@ export function EditorWorkspace() {
       }
       if (!editingText && event.key === "ArrowLeft") editorService.navigatePhoto(-1);
       if (!editingText && event.key === "ArrowRight") editorService.navigatePhoto(1);
+      if (!editingText && (event.key === "[" || event.key === "]") && selectedPhoto) {
+        const mask = selectedPhoto.editState.masks.find((item) => item.id === state.selectedMaskId);
+        if (mask?.type === "brush") {
+          event.preventDefault();
+          const nextSize = Math.min(1, Math.max(0.01, mask.size + (event.key === "]" ? 0.02 : -0.02)));
+          editorService.previewBrushSetting(selectedPhoto.id, mask.id, "size", nextSize);
+          editorService.commitBrushSetting(selectedPhoto.id, mask.id, "size", nextSize);
+        }
+      }
       if (!editingText && event.key === "\\") editorService.setShowOriginal(true);
     };
     const keyUp = (event: KeyboardEvent) => {
@@ -109,7 +118,7 @@ export function EditorWorkspace() {
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
     };
-  }, [selectedPhoto]);
+  }, [selectedPhoto, state.selectedMaskId]);
 
   const startExport = async () => {
     if (!selectedPhoto || state.exportProgress !== null) return;
