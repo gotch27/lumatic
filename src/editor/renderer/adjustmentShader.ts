@@ -509,6 +509,7 @@ export type AdjustmentFilter = Filter & {
   editState: PhotoEditState;
   imageWidth: number;
   imageHeight: number;
+  brushAtlasSignature: string;
   resources: {
     adjustmentUniforms: {
       uniforms: Record<string, number>;
@@ -520,6 +521,14 @@ export type AdjustmentFilter = Filter & {
     };
   };
 };
+
+function getBrushAtlasSignature(editState: PhotoEditState): string {
+  return JSON.stringify(editState.masks.map((mask) => (
+    mask.type === "brush"
+      ? { id: mask.id, type: mask.type, strokes: mask.strokes }
+      : { id: mask.id, type: mask.type }
+  )));
+}
 
 function defineAdjustmentUniforms(prefix: string, adjustments: AdjustmentValues) {
   return {
@@ -624,8 +633,11 @@ function setDevelopUniforms(uniforms: Record<string, number>, editState: PhotoEd
   for (const [key, definition] of Object.entries(definitions)) uniforms[key] = definition.value;
 }
 
-export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFilter {
-  const brushAtlasCanvas = createBrushAtlasCanvas(PREVIEW_BRUSH_CELL_SIZE);
+export function createAdjustmentFilter(
+  editState: PhotoEditState,
+  brushAtlasCellSize = PREVIEW_BRUSH_CELL_SIZE,
+): AdjustmentFilter {
+  const brushAtlasCanvas = createBrushAtlasCanvas(brushAtlasCellSize);
   const brushAtlasTexture = Texture.from(brushAtlasCanvas);
   const resources: Record<string, { value: number; type: "f32" }> = {
     ...defineAdjustmentUniforms("u", editState.adjustments),
@@ -683,6 +695,7 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
   filter.editState = editState;
   filter.imageWidth = 1;
   filter.imageHeight = 1;
+  filter.brushAtlasSignature = getBrushAtlasSignature(editState);
   const applyFilter = filter.apply.bind(filter);
   filter.apply = (filterManager, input, output, clearMode) => {
     if (filter.imageSprite) {
@@ -697,6 +710,7 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
 }
 
 export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEditState): void {
+  const brushAtlasSignature = getBrushAtlasSignature(editState);
   filter.editState = editState;
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   setAdjustmentUniforms(uniforms, "u", editState.adjustments);
@@ -730,8 +744,11 @@ export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEdi
     uniforms[`${prefix}Density`] = mask?.type === "brush" ? mask.density : 0;
     if (mask) setAdjustmentUniforms(uniforms, prefix, mask.adjustments);
   }
-  renderBrushMaskAtlas(filter.brushAtlasCanvas, editState, filter.imageWidth, filter.imageHeight);
-  filter.brushAtlasTexture.source.update();
+  if (brushAtlasSignature !== filter.brushAtlasSignature) {
+    renderBrushMaskAtlas(filter.brushAtlasCanvas, editState, filter.imageWidth, filter.imageHeight);
+    filter.brushAtlasTexture.source.update();
+    filter.brushAtlasSignature = brushAtlasSignature;
+  }
 }
 
 export function setFilterImageSize(filter: AdjustmentFilter, width: number, height: number): void {

@@ -134,10 +134,10 @@ export class PhotoRenderer {
     setFilterClippingOverlays(this.filter, showShadowClipping, showHighlightClipping);
   }
 
-  sampleFinalPixels(maximumEdge = 256) {
+  sampleFinalPixels(maximumEdge = 128) {
     if (!this.application || !this.sprite || !this.editState || !this.geometry) return null;
     if (!this.analysisSprite || !this.analysisFilter) {
-      this.analysisFilter = createAdjustmentFilter(this.editState);
+      this.analysisFilter = createAdjustmentFilter(this.editState, 128);
       this.analysisSprite = new Sprite(this.sprite.texture);
       this.analysisSprite.anchor.set(0.5);
       this.analysisSprite.filters = [this.analysisFilter];

@@ -5,7 +5,6 @@ import { getGeometryOutputDimensions, getOrientedDimensions } from "@/editor/dom
 import {
   createAdjustmentFilter,
   destroyAdjustmentFilter,
-  setFilterBrushAtlasResolution,
   setFilterImageRegion,
   setFilterImageSprite,
   setFilterImageSize,
@@ -74,8 +73,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
     antialias: false,
     preserveDrawingBuffer: true,
   });
-  const filter = createAdjustmentFilter(photo.editState);
-  setFilterBrushAtlasResolution(filter, EXPORT_BRUSH_CELL_SIZE);
+  const filter = createAdjustmentFilter(photo.editState, EXPORT_BRUSH_CELL_SIZE);
   setFilterImageSize(filter, photo.width, photo.height);
 
   try {
