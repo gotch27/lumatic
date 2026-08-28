@@ -108,6 +108,7 @@ const curveFunctions = CURVE_CHANNELS.map(({ key }) => {
   return `
     float applyCurve${name}(float value) {
       float inputValue = clamp(value, 0.0, 1.0);
+      if (uCurve${name}Count < 1.5) return inputValue;
       float result = uCurve${name}Y0;
       if (inputValue <= uCurve${name}X0) return result;
       ${segments}
@@ -447,12 +448,26 @@ function setAdjustmentUniforms(uniforms: Record<string, number>, prefix: string,
   uniforms[`${prefix}Vibrance`] = adjustments.vibrance;
 }
 
+function isIdentityCurve(points: PhotoEditState["toneCurve"]["rgb"]): boolean {
+  const first = points[0];
+  const last = points[points.length - 1];
+  return Boolean(
+    first
+    && last
+    && Math.abs(first.x) < 0.000001
+    && Math.abs(first.y) < 0.000001
+    && Math.abs(last.x - 1) < 0.000001
+    && Math.abs(last.y - 1) < 0.000001
+    && points.every((point) => Math.abs(point.x - point.y) < 0.000001),
+  );
+}
+
 function defineDevelopUniforms(editState: PhotoEditState): Record<string, { value: number; type: "f32" }> {
   const resources: Record<string, { value: number; type: "f32" }> = {};
   for (const { key } of CURVE_CHANNELS) {
     const name = key[0].toUpperCase() + key.slice(1);
     const points = editState.toneCurve[key];
-    resources[`uCurve${name}Count`] = { value: points.length, type: "f32" };
+    resources[`uCurve${name}Count`] = { value: isIdentityCurve(points) ? 0 : points.length, type: "f32" };
     for (let index = 0; index < MAX_TONE_CURVE_POINTS; index += 1) {
       const point = points[index] ?? points[points.length - 1] ?? { x: 1, y: 1 };
       resources[`uCurve${name}X${index}`] = { value: point.x, type: "f32" };
