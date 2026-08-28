@@ -163,6 +163,7 @@ const fragment = `
   uniform float uImageWidth;
   uniform float uImageHeight;
   uniform highp vec4 uInputPixel;
+  uniform float uToneCurvesActive;
   ${curveUniforms}
   ${colorMixUniforms}
   ${gradeUniforms}
@@ -210,6 +211,7 @@ const fragment = `
   ${curveFunction}
 
   vec3 applyToneCurves(vec3 color) {
+    if (uToneCurvesActive < 0.5) return color;
     color = vec3(
       applyCurve(color.r, ${curveArguments("Rgb")}),
       applyCurve(color.g, ${curveArguments("Rgb")}),
@@ -475,16 +477,20 @@ function isIdentityCurve(points: PhotoEditState["toneCurve"]["rgb"]): boolean {
 
 function defineDevelopUniforms(editState: PhotoEditState): Record<string, { value: number; type: "f32" }> {
   const resources: Record<string, { value: number; type: "f32" }> = {};
+  let toneCurvesActive = false;
   for (const { key } of CURVE_CHANNELS) {
     const name = key[0].toUpperCase() + key.slice(1);
     const points = editState.toneCurve[key];
-    resources[`uCurve${name}Count`] = { value: isIdentityCurve(points) ? 0 : points.length, type: "f32" };
+    const identity = isIdentityCurve(points);
+    toneCurvesActive ||= !identity;
+    resources[`uCurve${name}Count`] = { value: identity ? 0 : points.length, type: "f32" };
     for (let index = 0; index < MAX_TONE_CURVE_POINTS; index += 1) {
       const point = points[index] ?? points[points.length - 1] ?? { x: 1, y: 1 };
       resources[`uCurve${name}X${index}`] = { value: point.x, type: "f32" };
       resources[`uCurve${name}Y${index}`] = { value: point.y, type: "f32" };
     }
   }
+  resources.uToneCurvesActive = { value: toneCurvesActive ? 1 : 0, type: "f32" };
   for (const { key } of COLOR_MIX_CHANNELS) {
     const name = key[0].toUpperCase() + key.slice(1);
     resources[`uMix${name}Hue`] = { value: editState.colorMix[key].hue, type: "f32" };
