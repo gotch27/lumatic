@@ -42,9 +42,9 @@ button:disabled { cursor: default; }
   border-bottom: 1px solid #292929;
   background: #181818;
 }
-.brand-lockup { display: flex; min-width: 112px; align-items: center; }
-.brand-wordmark { position: relative; width: 108px; height: 16px; overflow: hidden; }
-.brand-wordmark img { position: absolute; top: -17px; left: -8px; width: 119px; max-width: none; height: auto; }
+.brand-lockup { display: flex; min-width: 116px; align-items: center; }
+.brand-wordmark { position: relative; width: 112px; height: 24px; overflow: hidden; }
+.brand-wordmark img { position: absolute; top: -8px; left: -4px; width: 119px; max-width: none; height: auto; }
 .topbar-divider { width: 1px; height: 20px; margin-right: 2px; background: rgba(255,255,255,.08); }
 .topbar-actions { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; }
 .button-group { display: flex; align-items: center; border: 1px solid #2d2d2d; border-radius: 6px; background: #151515; }
