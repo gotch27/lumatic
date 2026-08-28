@@ -90,32 +90,43 @@ const curveUniforms = CURVE_CHANNELS.map(({ key }) => {
   ].join("\n");
 }).join("\n");
 
-const curveFunctions = CURVE_CHANNELS.map(({ key }) => {
-  const name = key[0].toUpperCase() + key.slice(1);
-  const segments = Array.from({ length: MAX_TONE_CURVE_POINTS - 1 }, (_, offset) => {
-    const index = offset + 1;
-    return `
-      if (uCurve${name}Count > ${index.toFixed(1)}) {
-        float span${index} = max(0.0001, uCurve${name}X${index} - uCurve${name}X${index - 1});
-        if (inputValue <= uCurve${name}X${index}) {
-          float progress${index} = clamp((inputValue - uCurve${name}X${index - 1}) / span${index}, 0.0, 1.0);
-          return mix(uCurve${name}Y${index - 1}, uCurve${name}Y${index}, progress${index});
-        }
-        result = uCurve${name}Y${index};
-      }
-    `;
-  }).join("\n");
+const curveFunctionParameters = [
+  "float value",
+  "float pointCount",
+  ...Array.from({ length: MAX_TONE_CURVE_POINTS }, (_, index) => `float x${index}, float y${index}`),
+].join(", ");
+
+const curveArguments = (channel: string) => [
+  `uCurve${channel}Count`,
+  ...Array.from({ length: MAX_TONE_CURVE_POINTS }, (_, index) => (
+    `uCurve${channel}X${index}, uCurve${channel}Y${index}`
+  )),
+].join(", ");
+
+const curveSegments = Array.from({ length: MAX_TONE_CURVE_POINTS - 1 }, (_, offset) => {
+  const index = offset + 1;
   return `
-    float applyCurve${name}(float value) {
-      float inputValue = clamp(value, 0.0, 1.0);
-      if (uCurve${name}Count < 1.5) return inputValue;
-      float result = uCurve${name}Y0;
-      if (inputValue <= uCurve${name}X0) return result;
-      ${segments}
-      return result;
+    if (pointCount > ${index.toFixed(1)}) {
+      float span${index} = max(0.0001, x${index} - x${index - 1});
+      if (inputValue <= x${index}) {
+        float progress${index} = clamp((inputValue - x${index - 1}) / span${index}, 0.0, 1.0);
+        return mix(y${index - 1}, y${index}, progress${index});
+      }
+      result = y${index};
     }
   `;
 }).join("\n");
+
+const curveFunction = `
+  float applyCurve(${curveFunctionParameters}) {
+    float inputValue = clamp(value, 0.0, 1.0);
+    if (pointCount < 1.5) return inputValue;
+    float result = y0;
+    if (inputValue <= x0) return result;
+    ${curveSegments}
+    return result;
+  }
+`;
 
 const colorMixUniforms = COLOR_MIX_CHANNELS.map(({ key }) => {
   const name = key[0].toUpperCase() + key.slice(1);
@@ -196,18 +207,18 @@ const fragment = `
     return dot(value, vec3(0.2126, 0.7152, 0.0722));
   }
 
-  ${curveFunctions}
+  ${curveFunction}
 
   vec3 applyToneCurves(vec3 color) {
     color = vec3(
-      applyCurveRgb(color.r),
-      applyCurveRgb(color.g),
-      applyCurveRgb(color.b)
+      applyCurve(color.r, ${curveArguments("Rgb")}),
+      applyCurve(color.g, ${curveArguments("Rgb")}),
+      applyCurve(color.b, ${curveArguments("Rgb")})
     );
     return vec3(
-      applyCurveRed(color.r),
-      applyCurveGreen(color.g),
-      applyCurveBlue(color.b)
+      applyCurve(color.r, ${curveArguments("Red")}),
+      applyCurve(color.g, ${curveArguments("Green")}),
+      applyCurve(color.b, ${curveArguments("Blue")})
     );
   }
 
