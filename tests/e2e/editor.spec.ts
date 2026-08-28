@@ -28,6 +28,19 @@ async function sampledRedMean(image: Buffer, x: number, y: number, size = 11) {
   return stats.channels[0].mean;
 }
 
+async function warningPixelCount(image: Buffer, warning: "shadow" | "highlight") {
+  const { data } = await sharp(image).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let count = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    if (warning === "shadow" && blue > 220 && red < 80 && green < 130) count += 1;
+    if (warning === "highlight" && red > 220 && green < 80 && blue < 80) count += 1;
+  }
+  return count;
+}
+
 test("imports, edits, restores, exports, and clears a local library", async ({ page }) => {
   test.setTimeout(EDITOR_TEST_TIMEOUT);
   await page.goto("/");
@@ -710,4 +723,65 @@ test("keeps vignette and linear gradients locked to image space while panning", 
   );
   expect(Math.abs(darkAfterPan - dark)).toBeLessThan(3);
   expect(Math.abs(lightAfterPan - light)).toBeLessThan(3);
+});
+
+test("updates the histogram and shows crop-aware clipping overlays", async ({ page }) => {
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
+  const width = 900;
+  const height = 300;
+  const pixels = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = x < width / 3 ? 0 : x < width * 2 / 3 ? 128 : 255;
+      const offset = (y * width + x) * 4;
+      pixels[offset] = value;
+      pixels[offset + 1] = value;
+      pixels[offset + 2] = value;
+      pixels[offset + 3] = 255;
+    }
+  }
+  const source = await sharp(pixels, { raw: { width, height, channels: 4 } }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({
+    name: "histogram-source.png",
+    mimeType: "image/png",
+    buffer: source,
+  });
+  const stage = page.getByTestId("photo-stage");
+  await expect(stage).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("img", { name: "RGB histogram" })).toBeVisible({ timeout: 20_000 });
+  const redPathBefore = await page.locator(".histogram-red").getAttribute("d");
+  expect(redPathBefore).not.toBeNull();
+
+  await page.getByRole("button", { name: "Luma", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Luminance histogram" })).toBeVisible();
+  await page.getByRole("button", { name: "RGB", exact: true }).click();
+
+  const shadowToggle = page.getByTestId("shadow-clipping-toggle");
+  const highlightToggle = page.getByTestId("highlight-clipping-toggle");
+  await expect(shadowToggle).toHaveClass(/has-clipping/);
+  await expect(highlightToggle).toHaveClass(/has-clipping/);
+  await shadowToggle.click();
+  await highlightToggle.click();
+  await expect(shadowToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(highlightToggle).toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(100);
+  const warnings = await stage.screenshot();
+  expect(await warningPixelCount(warnings, "shadow")).toBeGreaterThan(1_000);
+  expect(await warningPixelCount(warnings, "highlight")).toBeGreaterThan(1_000);
+
+  await page.getByRole("tab", { name: "Crop", exact: true }).click();
+  await page.getByRole("button", { name: "1:1", exact: true }).click();
+  await expect(shadowToggle).not.toHaveClass(/has-clipping/, { timeout: 10_000 });
+  await expect(highlightToggle).not.toHaveClass(/has-clipping/, { timeout: 10_000 });
+  const croppedWarnings = await stage.screenshot();
+  expect(await warningPixelCount(croppedWarnings, "shadow")).toBeLessThan(100);
+  expect(await warningPixelCount(croppedWarnings, "highlight")).toBeLessThan(100);
+
+  await page.getByRole("tab", { name: "Light", exact: true }).click();
+  await page.getByLabel("Exposure value").fill("5");
+  await page.getByLabel("Exposure value").press("Tab");
+  await expect(highlightToggle).toHaveClass(/has-clipping/, { timeout: 10_000 });
+  await expect.poll(() => page.locator(".histogram-red").getAttribute("d")).not.toBe(redPathBefore);
 });

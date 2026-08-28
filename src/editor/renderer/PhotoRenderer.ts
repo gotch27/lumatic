@@ -1,4 +1,4 @@
-import { Application, Graphics, Sprite, Texture } from "pixi.js";
+import { Application, Graphics, RenderTexture, Sprite, Texture } from "pixi.js";
 
 import {
   geometryPointToSource,
@@ -10,6 +10,7 @@ import type { GeometryValues, PhotoEditState } from "@/editor/domain/types";
 import {
   createAdjustmentFilter,
   destroyAdjustmentFilter,
+  setFilterClippingOverlays,
   setFilterEditState,
   setFilterImageSprite,
   setFilterImageSize,
@@ -38,6 +39,9 @@ export class PhotoRenderer {
   private sprite: Sprite | null = null;
   private cropMask: Graphics | null = null;
   private filter: AdjustmentFilter | null = null;
+  private analysisFilter: AdjustmentFilter | null = null;
+  private analysisSprite: Sprite | null = null;
+  private analysisTarget: RenderTexture | null = null;
   private host: HTMLElement | null = null;
   private textureCache = new Map<string, Texture>();
   private currentSource: string | null = null;
@@ -46,6 +50,7 @@ export class PhotoRenderer {
   private photoRequest = 0;
   private onTransform: (() => void) | null = null;
   private geometry: GeometryValues | null = null;
+  private editState: PhotoEditState | null = null;
   private geometryEditing = false;
   private viewScale = 1;
   private anchorX = 0;
@@ -54,6 +59,7 @@ export class PhotoRenderer {
   async mount(host: HTMLElement, editState: PhotoEditState, onTransform?: () => void): Promise<void> {
     this.host = host;
     this.geometry = editState.geometry;
+    this.editState = editState;
     this.onTransform = onTransform ?? null;
     const application = new Application();
     await application.init({
@@ -104,18 +110,81 @@ export class PhotoRenderer {
       this.sprite.texture = texture;
     }
     setFilterImageSize(this.filter, texture.width, texture.height);
+    if (this.analysisSprite && this.analysisFilter) {
+      this.analysisSprite.texture = texture;
+      setFilterImageSize(this.analysisFilter, texture.width, texture.height);
+    }
     this.fit();
   }
 
   setEditState(editState: PhotoEditState): void {
     if (!this.filter) return;
     this.geometry = editState.geometry;
+    this.editState = editState;
     setFilterEditState(this.filter, editState);
     if (this.fitted) this.fit();
     else {
       this.updateTransform();
       this.onTransform?.();
     }
+  }
+
+  setClippingOverlays(showShadowClipping: boolean, showHighlightClipping: boolean): void {
+    if (!this.filter) return;
+    setFilterClippingOverlays(this.filter, showShadowClipping, showHighlightClipping);
+  }
+
+  sampleFinalPixels(maximumEdge = 256) {
+    if (!this.application || !this.sprite || !this.editState || !this.geometry) return null;
+    if (!this.analysisSprite || !this.analysisFilter) {
+      this.analysisFilter = createAdjustmentFilter(this.editState);
+      this.analysisSprite = new Sprite(this.sprite.texture);
+      this.analysisSprite.anchor.set(0.5);
+      this.analysisSprite.filters = [this.analysisFilter];
+      setFilterImageSprite(this.analysisFilter, this.analysisSprite);
+      setFilterImageSize(this.analysisFilter, this.sprite.texture.width, this.sprite.texture.height);
+    }
+
+    this.analysisSprite.texture = this.sprite.texture;
+    setFilterEditState(this.analysisFilter, this.editState);
+    setFilterClippingOverlays(this.analysisFilter, false, false);
+
+    const dimensions = getOrientedDimensions(
+      this.sprite.texture.width,
+      this.sprite.texture.height,
+      this.geometry.rotation,
+    );
+    const crop = this.geometry.crop;
+    const croppedWidth = Math.max(1, dimensions.width * crop.width);
+    const croppedHeight = Math.max(1, dimensions.height * crop.height);
+    const scaleToSample = maximumEdge / Math.max(croppedWidth, croppedHeight);
+    const width = Math.max(1, Math.round(croppedWidth * scaleToSample));
+    const height = Math.max(1, Math.round(croppedHeight * scaleToSample));
+    const scale = Math.min(width / croppedWidth, height / croppedHeight);
+    const cropCenterX = crop.x + crop.width / 2;
+    const cropCenterY = crop.y + crop.height / 2;
+    const quarterOdd = this.geometry.rotation === 90 || this.geometry.rotation === 270;
+    const sourceFlipX = quarterOdd ? this.geometry.flipVertical : this.geometry.flipHorizontal;
+    const sourceFlipY = quarterOdd ? this.geometry.flipHorizontal : this.geometry.flipVertical;
+    this.analysisSprite.position.set(
+      width / 2 + (0.5 - cropCenterX) * dimensions.width * scale,
+      height / 2 + (0.5 - cropCenterY) * dimensions.height * scale,
+    );
+    this.analysisSprite.rotation = (this.geometry.rotation + this.geometry.straighten) * Math.PI / 180;
+    this.analysisSprite.scale.set(scale * (sourceFlipX ? -1 : 1), scale * (sourceFlipY ? -1 : 1));
+
+    if (!this.analysisTarget) {
+      this.analysisTarget = RenderTexture.create({ width, height, resolution: 1, dynamic: true });
+    } else {
+      this.analysisTarget.resize(width, height, 1);
+    }
+    this.application.renderer.render({
+      container: this.analysisSprite,
+      target: this.analysisTarget,
+      clear: true,
+      clearColor: [0, 0, 0, 0],
+    });
+    return this.application.renderer.extract.pixels(this.analysisTarget);
   }
 
   setGeometryEditing(editing: boolean): void {
@@ -277,6 +346,13 @@ export class PhotoRenderer {
     this.photoRequest += 1;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    if (this.analysisSprite) this.analysisSprite.filters = [];
+    if (this.analysisFilter) destroyAdjustmentFilter(this.analysisFilter);
+    this.analysisTarget?.destroy(true);
+    this.analysisSprite?.destroy();
+    this.analysisFilter = null;
+    this.analysisTarget = null;
+    this.analysisSprite = null;
     this.textureCache.forEach((texture) => texture.destroy(true));
     this.textureCache.clear();
     if (this.sprite) {
@@ -292,6 +368,7 @@ export class PhotoRenderer {
     this.filter = null;
     this.host = null;
     this.geometry = null;
+    this.editState = null;
     this.onTransform = null;
   }
 }

@@ -14,6 +14,7 @@ import {
   type RadialGradientGeometry,
 } from "@/editor/domain/masks";
 import type { BrushPoint, CropRect, EditorMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
+import { calculateHistogram } from "@/editor/imaging/histogram";
 import { PhotoRenderer } from "@/editor/renderer/PhotoRenderer";
 import { useEditorStore } from "@/editor/state/store";
 
@@ -95,12 +96,17 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   const cropDragRef = useRef<CropDrag | null>(null);
   const straightenStartRef = useRef<{ x: number; y: number } | null>(null);
   const brushOverlayRef = useRef<HTMLCanvasElement>(null);
+  const histogramRevisionRef = useRef(0);
+  const histogramInputRef = useRef({ photoId: photo.id, ready: false, renderedPhotoId: null as string | null });
   const maskToolMode = useEditorStore((state) => state.maskToolMode);
   const geometryToolMode = useEditorStore((state) => state.geometryToolMode);
   const selectedMaskId = useEditorStore((state) => state.selectedMaskId);
+  const showShadowClipping = useEditorStore((state) => state.showShadowClipping);
+  const showHighlightClipping = useEditorStore((state) => state.showHighlightClipping);
   const selectedMask = photo.editState.masks.find((mask) => mask.id === selectedMaskId);
   const selectedBrush = selectedMask?.type === "brush" ? selectedMask : null;
   const [ready, setReady] = useState(false);
+  const [renderedPhotoId, setRenderedPhotoId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
   const [error, setError] = useState<string | null>(null);
   const [transformVersion, setTransformVersion] = useState(0);
@@ -155,6 +161,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       .then(() => {
         if (active) {
           setReady(true);
+          setRenderedPhotoId(photo.id);
           setZoom(renderer.getZoomPercent());
           setTransformVersion((version) => version + 1);
         }
@@ -175,6 +182,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     const renderer = rendererRef.current;
     if (!renderer || !ready) return;
     renderer.setPhoto(photo.previewUrl).then(() => {
+      setRenderedPhotoId(photo.id);
       setZoom(renderer.getZoomPercent());
       setTransformVersion((version) => version + 1);
     }).catch((cause: unknown) => {
@@ -188,6 +196,45 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       : photo.editState;
     rendererRef.current?.setEditState(editState);
   }, [photo.editState, showOriginal]);
+
+  useEffect(() => {
+    rendererRef.current?.setClippingOverlays(showShadowClipping, showHighlightClipping);
+  }, [showHighlightClipping, showShadowClipping]);
+
+  useEffect(() => {
+    histogramInputRef.current = { photoId: photo.id, ready, renderedPhotoId };
+  }, [photo.id, ready, renderedPhotoId]);
+
+  useEffect(() => {
+    histogramRevisionRef.current += 1;
+    if (!ready || renderedPhotoId !== photo.id) {
+      useEditorStore.setState({ histogramPhotoId: photo.id, histogram: null });
+    }
+  }, [photo.editState, photo.id, ready, renderedPhotoId, showOriginal]);
+
+  useEffect(() => {
+    let lastRevision = -1;
+    const analyze = () => {
+      const revision = histogramRevisionRef.current;
+      if (revision === lastRevision) return;
+      const input = histogramInputRef.current;
+      if (!input.ready || input.renderedPhotoId !== input.photoId) return;
+      try {
+        const sample = rendererRef.current?.sampleFinalPixels();
+        if (!sample) return;
+        useEditorStore.setState({
+          histogramPhotoId: input.photoId,
+          histogram: calculateHistogram(sample.pixels),
+        });
+      } catch {
+        useEditorStore.setState({ histogramPhotoId: input.photoId, histogram: null });
+      }
+      lastRevision = revision;
+    };
+    const timer = window.setInterval(analyze, 100);
+    analyze();
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     rendererRef.current?.setGeometryEditing(geometryToolMode !== "idle" && !showOriginal);

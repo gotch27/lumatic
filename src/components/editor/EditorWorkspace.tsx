@@ -24,6 +24,7 @@ import { EmptyWorkspace } from "./EmptyWorkspace";
 import { Filmstrip } from "./Filmstrip";
 import { GradientPanel } from "./GradientPanel";
 import { HistoryPanel } from "./HistoryPanel";
+import { HistogramPanel } from "./HistogramPanel";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { editorService } from "@/editor/commands/editorService";
@@ -245,6 +246,7 @@ export function EditorWorkspace() {
             <PhotoCanvas photo={selectedPhoto} showOriginal={state.showOriginal} />
           </main>
           <aside className="right-panel">
+            <HistogramPanel photoId={selectedPhoto.id} />
             <div className="panel-tabs" role="tablist">
               <button aria-selected={panel === "adjustments"} className={panel === "adjustments" ? "is-active" : ""} onClick={() => setPanel("adjustments")} role="tab" type="button">
                 Adjust

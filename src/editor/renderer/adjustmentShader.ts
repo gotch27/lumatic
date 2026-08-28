@@ -230,6 +230,8 @@ const fragment = `
   uniform float uColorNoise;
   uniform float uColorNoiseDetail;
   uniform float uColorNoiseSmoothness;
+  uniform float uShowShadowClipping;
+  uniform float uShowHighlightClipping;
   ${maskUniforms}
 
   vec3 srgbToLinear(vec3 value) {
@@ -489,7 +491,14 @@ const fragment = `
     grainNoise = mix(grainNoise, grainNoise * 0.6 + roughNoise * 0.8, uGrainRoughness / 100.0);
     color += vec3(grainNoise * (uGrain / 100.0) * 0.18);
     color += vec3((luminance(color) - luminance(neighbor)) * (uLuminanceContrast / 100.0) * (uLuminanceNoise / 100.0) * 0.18);
-    finalColor = vec4(clamp(linearToSrgb(color), 0.0, 1.0), source.a);
+    vec3 displayColor = linearToSrgb(color);
+    float maximumChannel = max(max(displayColor.r, displayColor.g), displayColor.b);
+    float shadowClipped = 1.0 - step(0.004, maximumChannel);
+    float highlightClipped = step(0.996, maximumChannel);
+    displayColor = clamp(displayColor, 0.0, 1.0);
+    displayColor = mix(displayColor, vec3(0.06, 0.24, 1.0), shadowClipped * uShowShadowClipping);
+    displayColor = mix(displayColor, vec3(1.0, 0.08, 0.04), highlightClipped * uShowHighlightClipping);
+    finalColor = vec4(displayColor, source.a);
   }
 `;
 
@@ -637,6 +646,8 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     uGeometryFlipVertical: { value: editState.geometry.flipVertical ? 1 : 0, type: "f32" },
     uGeometryOrientedWidth: { value: 1, type: "f32" },
     uGeometryOrientedHeight: { value: 1, type: "f32" },
+    uShowShadowClipping: { value: 0, type: "f32" },
+    uShowHighlightClipping: { value: 0, type: "f32" },
   };
   for (let index = 0; index < MAX_GRADIENT_MASKS; index += 1) {
     const mask = editState.masks[index];
@@ -734,6 +745,16 @@ export function setFilterImageSize(filter: AdjustmentFilter, width: number, heig
   uniforms.uGeometryOrientedHeight = quarterOdd ? filter.imageWidth : filter.imageHeight;
   renderBrushMaskAtlas(filter.brushAtlasCanvas, filter.editState, filter.imageWidth, filter.imageHeight);
   filter.brushAtlasTexture.source.update();
+}
+
+export function setFilterClippingOverlays(
+  filter: AdjustmentFilter,
+  showShadowClipping: boolean,
+  showHighlightClipping: boolean,
+): void {
+  const uniforms = filter.resources.adjustmentUniforms.uniforms;
+  uniforms.uShowShadowClipping = showShadowClipping ? 1 : 0;
+  uniforms.uShowHighlightClipping = showHighlightClipping ? 1 : 0;
 }
 
 export function setFilterBrushAtlasResolution(filter: AdjustmentFilter, cellSize: number): void {

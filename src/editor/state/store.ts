@@ -8,6 +8,7 @@ import type {
   RuntimePhoto,
   SaveStatus,
 } from "@/editor/domain/types";
+import type { HistogramData } from "@/editor/imaging/histogram";
 
 export type EditorDraft =
   | { kind: "global-adjustment"; photoId: string; key: AdjustmentKey; baselineValue: number }
@@ -39,6 +40,10 @@ export interface EditorStore {
   storageQuota: number | null;
   persistentStorage: boolean | null;
   showOriginal: boolean;
+  histogramPhotoId: string | null;
+  histogram: HistogramData | null;
+  showShadowClipping: boolean;
+  showHighlightClipping: boolean;
   exportProgress: number | null;
   exportLabel: string | null;
   notices: Notice[];
@@ -62,6 +67,10 @@ export const initialEditorState: EditorStore = {
   storageQuota: null,
   persistentStorage: null,
   showOriginal: false,
+  histogramPhotoId: null,
+  histogram: null,
+  showShadowClipping: false,
+  showHighlightClipping: false,
   exportProgress: null,
   exportLabel: null,
   notices: [],
