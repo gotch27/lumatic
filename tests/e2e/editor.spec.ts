@@ -149,6 +149,42 @@ test("draws, edits, restores, and exports a linear gradient mask", async ({ page
   await page.mouse.move(handle!.x + handle!.width / 2 + 45, handle!.y + handle!.height / 2 + 15, { steps: 5 });
   await page.mouse.up();
 
+  const boundaries = page.locator(".gradient-boundary");
+  await expect(boundaries).toHaveCount(2);
+  await page.mouse.click(stage!.x + 12, stage!.y + stage!.height / 2);
+  await expect(boundaries).toHaveCount(0);
+  await expect(page.getByTestId("gradient-handle-start")).toHaveCount(0);
+  const axis = page.locator('[data-testid^="gradient-line-"]').first();
+  await expect(axis).toBeVisible();
+  const axisBox = await axis.boundingBox();
+  expect(axisBox).not.toBeNull();
+  await page.mouse.click(axisBox!.x + axisBox!.width / 2, axisBox!.y + axisBox!.height / 2);
+  await expect(boundaries).toHaveCount(2);
+
+  const imageSize = Math.min(stage!.width - 56, stage!.height - 56, 1000);
+  const imageTop = stage!.y + (stage!.height - imageSize) / 2;
+  const imageBottom = imageTop + imageSize;
+  const startHandle = page.getByTestId("gradient-handle-start");
+  let startBox = await startHandle.boundingBox();
+  expect(startBox).not.toBeNull();
+  await page.mouse.move(startBox!.x + startBox!.width / 2, startBox!.y + startBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(startBox!.x + startBox!.width / 2, stage!.y + 8, { steps: 6 });
+  await page.mouse.up();
+  startBox = await startHandle.boundingBox();
+  expect(startBox).not.toBeNull();
+  expect(startBox!.y + startBox!.height / 2).toBeLessThan(imageTop);
+
+  let endBox = await endHandle.boundingBox();
+  expect(endBox).not.toBeNull();
+  await page.mouse.move(endBox!.x + endBox!.width / 2, endBox!.y + endBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(endBox!.x + endBox!.width / 2, stage!.y + stage!.height - 8, { steps: 6 });
+  await page.mouse.up();
+  endBox = await endHandle.boundingBox();
+  expect(endBox).not.toBeNull();
+  expect(endBox!.y + endBox!.height / 2).toBeGreaterThan(imageBottom);
+
   const localExposure = page.getByLabel("Mask Exposure value");
   await localExposure.fill("-1");
   await localExposure.press("Tab");

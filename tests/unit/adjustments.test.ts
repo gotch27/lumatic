@@ -52,9 +52,9 @@ describe("adjustment domain", () => {
 
   it("keeps gradient geometry resolution-independent and marks masks as edits", () => {
     expect(clampGradientGeometry({ startX: -1, startY: 0.123456, endX: 2, endY: 0.75, feather: 4 })).toEqual({
-      startX: 0,
+      startX: -1,
       startY: 0.1235,
-      endX: 1,
+      endX: 2,
       endY: 0.75,
       feather: 1,
     });

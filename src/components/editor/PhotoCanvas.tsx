@@ -199,13 +199,14 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         onPointerDown={(event) => {
           if (maskToolMode === "create-linear") {
             const point = pointFromEvent(event.clientX, event.clientY);
-            if (!point || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) return;
+            if (!point) return;
             const maskId = editorService.beginLinearGradient(photo.id, point.x, point.y);
             if (!maskId) return;
             createDragRef.current = { maskId, startX: point.x, startY: point.y };
             event.currentTarget.setPointerCapture(event.pointerId);
             return;
           }
+          editorService.selectMask(null);
           panRef.current = { x: event.clientX, y: event.clientY };
           event.currentTarget.setPointerCapture(event.pointerId);
         }}

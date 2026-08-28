@@ -119,6 +119,19 @@ describe("editor command service", () => {
     ]);
   });
 
+  it("keeps gradient endpoints outside the photo bounds", () => {
+    const maskId = editorService.beginLinearGradient("photo-1", 0.2, 0.1)!;
+    editorService.previewLinearGradientGeometry("photo-1", maskId, {
+      startX: -0.25,
+      startY: -0.1,
+      endX: 1.3,
+      endY: 1.2,
+      feather: 0.65,
+    });
+    const mask = useEditorStore.getState().photos[0].editState.masks[0];
+    expect(mask).toMatchObject({ startX: -0.25, startY: -0.1, endX: 1.3, endY: 1.2 });
+  });
+
   it("undoes and redoes mask geometry, local edits, and deletion", () => {
     const maskId = editorService.beginLinearGradient("photo-1", 0.1, 0.1)!;
     let mask = useEditorStore.getState().photos[0].editState.masks[0];

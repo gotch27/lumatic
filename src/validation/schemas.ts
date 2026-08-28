@@ -21,10 +21,10 @@ export const adjustmentCommandSchema = z.object({
 });
 
 export const linearGradientGeometrySchema = z.object({
-  startX: z.number().finite().min(0).max(1),
-  startY: z.number().finite().min(0).max(1),
-  endX: z.number().finite().min(0).max(1),
-  endY: z.number().finite().min(0).max(1),
+  startX: z.number().finite(),
+  startY: z.number().finite(),
+  endX: z.number().finite(),
+  endY: z.number().finite(),
   feather: z.number().finite().min(0).max(1),
 });
 

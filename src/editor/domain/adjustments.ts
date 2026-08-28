@@ -140,14 +140,18 @@ export function clampNormalized(value: number): number {
   return Number(Math.min(1, Math.max(0, value)).toFixed(4));
 }
 
+function roundGradientCoordinate(value: number): number {
+  return Number(value.toFixed(4));
+}
+
 export function clampGradientGeometry(
   geometry: Pick<LinearGradientMask, "startX" | "startY" | "endX" | "endY" | "feather">,
 ) {
   return {
-    startX: clampNormalized(geometry.startX),
-    startY: clampNormalized(geometry.startY),
-    endX: clampNormalized(geometry.endX),
-    endY: clampNormalized(geometry.endY),
+    startX: roundGradientCoordinate(geometry.startX),
+    startY: roundGradientCoordinate(geometry.startY),
+    endX: roundGradientCoordinate(geometry.endX),
+    endY: roundGradientCoordinate(geometry.endY),
     feather: clampNormalized(geometry.feather),
   };
 }
