@@ -11,6 +11,7 @@ import {
   hasDevelopEdits,
   normalizeCurvePoints,
 } from "./developSettings";
+import { cloneGeometry, createDefaultGeometry, isGeometryEdited, normalizeGeometry } from "./geometry";
 
 export interface AdjustmentDefinition {
   key: AdjustmentKey;
@@ -59,6 +60,7 @@ export function createDefaultAdjustments(): AdjustmentValues {
 export function createDefaultEditState(): PhotoEditState {
   return {
     adjustments: createDefaultAdjustments(),
+    geometry: createDefaultGeometry(),
     toneCurve: createDefaultToneCurve(),
     colorMix: createDefaultColorMix(),
     colorGrading: createDefaultColorGrading(),
@@ -85,6 +87,7 @@ export function cloneMask<T extends EditorMask>(mask: T): T {
 export function cloneEditState(editState: PhotoEditState): PhotoEditState {
   return {
     adjustments: { ...editState.adjustments },
+    geometry: cloneGeometry(editState.geometry),
     toneCurve: cloneToneCurve(editState.toneCurve),
     colorMix: cloneColorMix(editState.colorMix),
     colorGrading: cloneColorGrading(editState.colorGrading),
@@ -94,7 +97,11 @@ export function cloneEditState(editState: PhotoEditState): PhotoEditState {
   };
 }
 
-export function normalizeEditState(editState: Partial<PhotoEditState> | undefined): PhotoEditState {
+export function normalizeEditState(
+  editState: Partial<PhotoEditState> | undefined,
+  imageWidth = 1,
+  imageHeight = 1,
+): PhotoEditState {
   const defaultCurve = createDefaultToneCurve();
   const storedCurve = editState?.toneCurve;
   const defaultMix = createDefaultColorMix();
@@ -103,6 +110,7 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
   const storedGrading = editState?.colorGrading;
   return {
     adjustments: { ...DEFAULT_ADJUSTMENTS, ...(editState?.adjustments ?? {}) },
+    geometry: normalizeGeometry(editState?.geometry, imageWidth, imageHeight),
     toneCurve: {
       rgb: normalizeCurvePoints(storedCurve?.rgb ?? defaultCurve.rgb),
       red: normalizeCurvePoints(storedCurve?.red ?? defaultCurve.red),
@@ -180,6 +188,7 @@ export function isEdited(editStateOrAdjustments: PhotoEditState | AdjustmentValu
     ? editStateOrAdjustments
     : { ...createDefaultEditState(), adjustments: editStateOrAdjustments };
   return editState.masks.length > 0
+    || isGeometryEdited(editState.geometry)
     || ADJUSTMENT_DEFINITIONS.some(({ key }) => editState.adjustments[key] !== DEFAULT_ADJUSTMENTS[key])
     || hasDevelopEdits(editState.toneCurve, editState.colorMix, editState.colorGrading, editState.effects, editState.detail);
 }

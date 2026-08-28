@@ -30,6 +30,14 @@ import {
   createDefaultToneCurve,
   normalizeCurvePoints,
 } from "@/editor/domain/developSettings";
+import {
+  applyCropAspectPreset,
+  cloneGeometry,
+  createDefaultGeometry,
+  normalizeGeometry,
+  rotateGeometryClockwise,
+  type CropAspectPreset,
+} from "@/editor/domain/geometry";
 import type {
   Actor,
   AdjustmentKey,
@@ -43,6 +51,8 @@ import type {
   HistoryEventType,
   BrushPoint,
   EditorMask,
+  CropRect,
+  GeometryValues,
   PhotoEditState,
   PhotoRecord,
   RuntimePhoto,
@@ -63,6 +73,7 @@ import { createId } from "@/lib/id";
 import {
   adjustmentCommandSchema,
   developSettingCommandSchema,
+  geometrySchema,
   linearGradientGeometrySchema,
   maskAdjustmentCommandSchema,
   radialGradientGeometrySchema,
@@ -580,6 +591,109 @@ function resetDevelopGroup(photoId: string, group: DevelopGroup): void {
   commitEvent(photoId, before, after, eventType[group], { label: `Reset ${group}` }, "user");
 }
 
+function previewGeometryState(photoId: string, target: string, geometry: GeometryValues): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const next = normalizeGeometry(geometrySchema.parse(geometry), photo.width, photo.height);
+  previewDevelopState(photoId, target, (editState) => {
+    editState.geometry = cloneGeometry(next);
+  });
+}
+
+function commitGeometryState(
+  photoId: string,
+  target: string,
+  label: string,
+  actor: Actor = "user",
+): void {
+  commitDevelopState(photoId, target, "geometry.changed", { property: target, label }, actor);
+}
+
+function previewCrop(photoId: string, crop: CropRect): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  previewGeometryState(photoId, "geometry.crop", { ...cloneGeometry(photo.editState.geometry), crop: { ...crop } });
+}
+
+function commitCrop(photoId: string, crop: CropRect, actor: Actor = "user"): void {
+  previewCrop(photoId, crop);
+  commitGeometryState(photoId, "geometry.crop", "Crop", actor);
+}
+
+function previewStraighten(photoId: string, straighten: number): void {
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const baseline = state.draft?.kind === "develop-setting"
+    && state.draft.photoId === photoId
+    && state.draft.target === "geometry.straighten"
+    ? state.draft.baseline.geometry
+    : photo.editState.geometry;
+  previewGeometryState(photoId, "geometry.straighten", {
+    ...cloneGeometry(baseline),
+    straighten,
+  });
+}
+
+function commitStraighten(photoId: string, straighten: number, actor: Actor = "user"): void {
+  previewStraighten(photoId, straighten);
+  commitGeometryState(photoId, "geometry.straighten", "Straighten", actor);
+}
+
+function commitGeometryAction(
+  photoId: string,
+  geometry: GeometryValues,
+  label: string,
+  actor: Actor = "user",
+): void {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  const before = cloneEditState(photo.editState);
+  const after = cloneEditState(photo.editState);
+  after.geometry = normalizeGeometry(geometrySchema.parse(geometry), photo.width, photo.height);
+  if (JSON.stringify(before.geometry) === JSON.stringify(after.geometry)) return;
+  commitEvent(photoId, before, after, "geometry.changed", { property: "geometry", label }, actor);
+}
+
+function applyCropPreset(photoId: string, preset: CropAspectPreset): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo || preset === "free") return;
+  commitGeometryAction(
+    photoId,
+    applyCropAspectPreset(photo.editState.geometry, preset, photo.width, photo.height),
+    `Crop · ${preset === "original" ? "Original" : preset}`,
+  );
+}
+
+function rotate90(photoId: string): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  commitGeometryAction(photoId, rotateGeometryClockwise(photo.editState.geometry), "Rotate 90°");
+}
+
+function flipHorizontal(photoId: string): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  commitGeometryAction(photoId, {
+    ...cloneGeometry(photo.editState.geometry),
+    flipHorizontal: !photo.editState.geometry.flipHorizontal,
+  }, "Flip horizontal");
+}
+
+function flipVertical(photoId: string): void {
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return;
+  commitGeometryAction(photoId, {
+    ...cloneGeometry(photo.editState.geometry),
+    flipVertical: !photo.editState.geometry.flipVertical,
+  }, "Flip vertical");
+}
+
+function resetGeometry(photoId: string): void {
+  commitGeometryAction(photoId, createDefaultGeometry(), "Reset crop & geometry");
+}
+
 function beginLinearGradient(photoId: string, startX: number, startY: number): string | null {
   cancelAdjustment();
   const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
@@ -1042,7 +1156,7 @@ function deleteMask(photoId: string, maskId: string): void {
 function cancelAdjustment(): void {
   const draft = useEditorStore.getState().draft;
   if (!draft) {
-    useEditorStore.setState({ maskToolMode: "idle" });
+    useEditorStore.setState({ maskToolMode: "idle", geometryToolMode: "idle" });
     return;
   }
   if (draft.kind === "global-adjustment") {
@@ -1074,7 +1188,7 @@ function cancelAdjustment(): void {
   } else {
     replacePhoto(draft.photoId, (photo) => ({ ...photo, editState: cloneEditState(draft.baseline) }));
   }
-  useEditorStore.setState({ draft: null, maskToolMode: "idle" });
+  useEditorStore.setState({ draft: null, maskToolMode: "idle", geometryToolMode: "idle" });
 }
 
 function resetAll(photoId: string): void {
@@ -1132,6 +1246,7 @@ function selectPhoto(photoId: string): void {
     selectedPhotoId: photoId,
     selectedMaskId: null,
     maskToolMode: "idle",
+    geometryToolMode: "idle",
     showOriginal: false,
   });
   enqueuePersistence(() => saveSelection(photoId));
@@ -1159,7 +1274,16 @@ async function newLibrary(): Promise<void> {
 
 function setMaskToolMode(maskToolMode: "idle" | "create-linear" | "create-radial" | "paint-brush"): void {
   cancelAdjustment();
-  useEditorStore.setState({ maskToolMode });
+  useEditorStore.setState({ maskToolMode, geometryToolMode: "idle" });
+}
+
+function setGeometryToolMode(geometryToolMode: "idle" | "crop" | "straighten"): void {
+  cancelAdjustment();
+  useEditorStore.setState({
+    geometryToolMode,
+    maskToolMode: "idle",
+    ...(geometryToolMode === "idle" ? {} : { selectedMaskId: null }),
+  });
 }
 
 function setBrushPaintMode(brushPaintMode: "add" | "erase"): void {
@@ -1168,7 +1292,7 @@ function setBrushPaintMode(brushPaintMode: "add" | "erase"): void {
 
 function selectMask(maskId: string | null): void {
   cancelAdjustment();
-  useEditorStore.setState({ selectedMaskId: maskId, maskToolMode: "idle" });
+  useEditorStore.setState({ selectedMaskId: maskId, maskToolMode: "idle", geometryToolMode: "idle" });
 }
 
 function dismissNotice(id: string): void {
@@ -1203,6 +1327,15 @@ export const editorService = {
   previewDetail,
   commitDetail,
   resetDevelopGroup,
+  previewCrop,
+  commitCrop,
+  previewStraighten,
+  commitStraighten,
+  applyCropPreset,
+  rotate90,
+  flipHorizontal,
+  flipVertical,
+  resetGeometry,
   beginLinearGradient,
   beginRadialGradient,
   beginBrushMask,
@@ -1229,6 +1362,7 @@ export const editorService = {
   navigatePhoto,
   newLibrary,
   setMaskToolMode,
+  setGeometryToolMode,
   setBrushPaintMode,
   selectMask,
   dismissNotice,

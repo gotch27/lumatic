@@ -82,6 +82,33 @@ describe("editor command service", () => {
     expect(state.historyByPhoto["photo-1"]).toHaveLength(0);
   });
 
+  it("commits crop, rotate, straighten, and flips through replayable geometry history", () => {
+    editorService.previewCrop("photo-1", { x: 0.1, y: 0.1, width: 0.8, height: 0.7 });
+    editorService.commitCrop("photo-1", { x: 0.1, y: 0.1, width: 0.8, height: 0.7 });
+    editorService.rotate90("photo-1");
+    editorService.flipHorizontal("photo-1");
+    editorService.previewStraighten("photo-1", 8.5);
+    editorService.commitStraighten("photo-1", 8.5);
+
+    let state = useEditorStore.getState();
+    expect(state.photos[0].editState.geometry).toMatchObject({
+      rotation: 90,
+      straighten: 8.5,
+      flipHorizontal: true,
+    });
+    expect(state.historyByPhoto["photo-1"].map((event) => event.type)).toEqual([
+      "geometry.changed",
+      "geometry.changed",
+      "geometry.changed",
+      "geometry.changed",
+    ]);
+    editorService.undo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.geometry.straighten).toBe(0);
+    editorService.redo("photo-1");
+    state = useEditorStore.getState();
+    expect(state.photos[0].editState.geometry.straighten).toBe(8.5);
+  });
+
   it("does not create an event when a gesture returns to its baseline", () => {
     editorService.previewAdjustment("photo-1", "tint", 10);
     editorService.previewAdjustment("photo-1", "tint", 0);

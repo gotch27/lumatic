@@ -1,6 +1,6 @@
 "use client";
 
-import { Blend, History, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { Blend, Crop, History, RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import { ADJUSTMENT_BY_KEY } from "@/editor/domain/adjustments";
 import type { AdjustmentKey, HistoryEvent, RuntimePhoto } from "@/editor/domain/types";
@@ -22,6 +22,7 @@ function eventValue(event: HistoryEvent): string {
   if (event.type === "mask.created") return "Added";
   if (event.type === "mask.geometry.changed") return "Moved";
   if (event.type === "mask.deleted") return "Removed";
+  if (event.type === "geometry.changed") return "Applied";
   if (event.payload.nextValue === undefined) return "Defaults";
   const value = event.payload.nextValue ?? 0;
   return `${value > 0 ? "+" : ""}${value}`;
@@ -55,6 +56,8 @@ export function HistoryPanel({ photo, events }: { photo: RuntimePhoto; events: H
           const applied = index < photo.historyCursor;
           const Icon = event.type === "adjustments.reset"
             ? RotateCcw
+            : event.type === "geometry.changed"
+              ? Crop
             : event.type.startsWith("mask.")
               ? Blend
               : SlidersHorizontal;

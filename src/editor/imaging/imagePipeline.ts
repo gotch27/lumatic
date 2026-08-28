@@ -90,7 +90,7 @@ export async function processImageFile(file: File, order: number): Promise<Proce
 export function createRuntimePhoto(photo: PhotoRecord, assets: PhotoAssetRecord): RuntimePhoto {
   return {
     ...photo,
-    editState: normalizeEditState(photo.editState),
+    editState: normalizeEditState(photo.editState, photo.width, photo.height),
     previewUrl: URL.createObjectURL(assets.preview),
     thumbnailUrl: URL.createObjectURL(assets.thumbnail),
   };

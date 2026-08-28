@@ -47,6 +47,19 @@ export const developSettingCommandSchema = z.object({
   actor: z.enum(["user", "agent"]).default("user"),
 });
 
+export const geometrySchema = z.object({
+  crop: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    width: z.number().finite().positive(),
+    height: z.number().finite().positive(),
+  }),
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
+  straighten: z.number().finite().min(-45).max(45),
+  flipHorizontal: z.boolean(),
+  flipVertical: z.boolean(),
+});
+
 export const toneCurveCommandSchema = z.object({
   photoId: z.string().min(1),
   channel: z.enum(["rgb", "red", "green", "blue"]),

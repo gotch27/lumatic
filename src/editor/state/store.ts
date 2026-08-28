@@ -29,6 +29,7 @@ export interface EditorStore {
   draft: EditorDraft | null;
   selectedMaskId: string | null;
   maskToolMode: "idle" | "create-linear" | "create-radial" | "paint-brush";
+  geometryToolMode: "idle" | "crop" | "straighten";
   brushPaintMode: "add" | "erase";
   saveStatus: SaveStatus;
   isImporting: boolean;
@@ -51,6 +52,7 @@ export const initialEditorState: EditorStore = {
   draft: null,
   selectedMaskId: null,
   maskToolMode: "idle",
+  geometryToolMode: "idle",
   brushPaintMode: "add",
   saveStatus: "idle",
   isImporting: false,

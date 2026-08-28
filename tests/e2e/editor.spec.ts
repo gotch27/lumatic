@@ -379,6 +379,131 @@ test("paints, erases, restores, and exports a brush mask", async ({ page }) => {
   await expect(page.getByRole("group", { name: "Brush paint mode" }).getByRole("button", { name: "Add", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
 
+test("crops, rotates, straightens, flips, restores, and exports geometry", async ({ page }) => {
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
+  const source = await sharp(Buffer.from(`
+    <svg width="1200" height="800" xmlns="http://www.w3.org/2000/svg">
+      <rect width="600" height="400" x="0" y="0" fill="#ef4444"/>
+      <rect width="600" height="400" x="600" y="0" fill="#22c55e"/>
+      <rect width="600" height="400" x="0" y="400" fill="#3b82f6"/>
+      <rect width="600" height="400" x="600" y="400" fill="#facc15"/>
+    </svg>
+  `)).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({
+    name: "geometry-source.png",
+    mimeType: "image/png",
+    buffer: source,
+  });
+  await expect(page.getByTestId("photo-stage")).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: "Effects", exact: true }).click();
+  await page.getByLabel("Vignette value").fill("-80");
+  await page.getByLabel("Vignette value").press("Tab");
+  await page.getByRole("tab", { name: "Crop", exact: true }).click();
+  await page.getByRole("button", { name: "Edit crop" }).click();
+  await expect(page.getByTestId("crop-overlay")).toBeVisible();
+
+  const southEast = await page.getByTestId("crop-handle-se").boundingBox();
+  expect(southEast).not.toBeNull();
+  await page.mouse.move(southEast!.x + 6, southEast!.y + 6);
+  await page.mouse.down();
+  await page.mouse.move(southEast!.x - 80, southEast!.y - 50, { steps: 6 });
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Undo" }).click();
+
+  await page.getByRole("button", { name: "16:9", exact: true }).click();
+  await page.getByRole("button", { name: "Rotate 90 degrees clockwise" }).click();
+  await page.getByRole("button", { name: "Horizontal", exact: true }).click();
+  const straighten = page.getByLabel("Straighten angle value");
+  await straighten.fill("5");
+  await straighten.press("Tab");
+  await expect(straighten).toHaveValue("5");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(straighten).toHaveValue("0");
+  await page.getByRole("button", { name: "Draw horizon line" }).click();
+  const straightenStage = await page.getByTestId("photo-stage").boundingBox();
+  expect(straightenStage).not.toBeNull();
+  await page.mouse.move(straightenStage!.x + straightenStage!.width * 0.3, straightenStage!.y + straightenStage!.height * 0.45);
+  await page.mouse.down();
+  await page.mouse.move(straightenStage!.x + straightenStage!.width * 0.7, straightenStage!.y + straightenStage!.height * 0.52, { steps: 8 });
+  await page.mouse.up();
+  expect(Math.abs(Number(await straighten.inputValue()))).toBeGreaterThan(1);
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(straighten).toHaveValue("0");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const metadata = await sharp(path!).metadata();
+  expect(metadata.width).toBe(675);
+  expect(metadata.height).toBe(1200);
+  const topLeftBuffer = await sharp(path!).extract({ left: 20, top: 20, width: 25, height: 25 }).png().toBuffer();
+  const topLeft = await sharp(topLeftBuffer).stats();
+  const innerRedBuffer = await sharp(path!).extract({ left: 285, top: 535, width: 25, height: 25 }).png().toBuffer();
+  const innerRed = await sharp(innerRedBuffer).stats();
+  expect(topLeft.channels[0].mean).toBeGreaterThan(topLeft.channels[1].mean * 2);
+  expect(innerRed.channels[0].mean).toBeGreaterThan(topLeft.channels[0].mean + 30);
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Crop", exact: true }).click();
+  await expect(page.getByText("675 × 1200", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Horizontal", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("tab", { name: /History/ }).click();
+  await expect(page.getByTestId("history-panel")).toContainText("Crop · 16:9");
+  await expect(page.getByTestId("history-panel")).toContainText("Rotate 90°");
+  await expect(page.getByTestId("history-panel")).toContainText("Flip horizontal");
+});
+
+test("keeps local masks aligned through crop, flip, preview, and export", async ({ page }) => {
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
+  const source = await sharp({
+    create: { width: 800, height: 800, channels: 4, background: { r: 170, g: 170, b: 170, alpha: 1 } },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({ name: "mask-geometry.png", mimeType: "image/png", buffer: source });
+  const stageLocator = page.getByTestId("photo-stage");
+  await expect(stageLocator).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Draw radial gradient" }).click();
+  const stage = await stageLocator.boundingBox();
+  expect(stage).not.toBeNull();
+  const imageSize = Math.min(stage!.width - 56, stage!.height - 56, 800);
+  const imageLeft = stage!.x + (stage!.width - imageSize) / 2;
+  const imageTop = stage!.y + (stage!.height - imageSize) / 2;
+  await page.mouse.move(imageLeft + imageSize * 0.25, imageTop + imageSize * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(imageLeft + imageSize * 0.39, imageTop + imageSize * 0.5, { steps: 8 });
+  await page.mouse.up();
+  await page.getByLabel("Mask Exposure value").fill("-2");
+  await page.getByLabel("Mask Exposure value").press("Tab");
+
+  await page.getByRole("tab", { name: /Adjust/ }).click();
+  await page.getByRole("tab", { name: "Crop", exact: true }).click();
+  await page.getByRole("button", { name: "4:3", exact: true }).click();
+  await page.getByRole("button", { name: "Horizontal", exact: true }).click();
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Radial Gradient 1", exact: true }).click();
+  const transformedCenter = await page.getByTestId("radial-gradient-center").boundingBox();
+  expect(transformedCenter).not.toBeNull();
+  expect(transformedCenter!.x + transformedCenter!.width / 2).toBeGreaterThan(stage!.x + stage!.width / 2);
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const metadata = await sharp(path!).metadata();
+  expect(metadata.width).toBe(800);
+  expect(metadata.height).toBe(600);
+  const masked = await sampledRedMean(await sharp(path!).png().toBuffer(), 600, 300, 31);
+  const unmasked = await sampledRedMean(await sharp(path!).png().toBuffer(), 200, 300, 31);
+  expect(masked).toBeLessThan(unmasked - 25);
+});
+
 test("edits curves, color, effects, and detail through the shared develop workflow", async ({ page }) => {
   test.setTimeout(EDITOR_TEST_TIMEOUT);
   const source = await sharp({

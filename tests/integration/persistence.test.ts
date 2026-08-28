@@ -193,4 +193,36 @@ describe("local workspace persistence", () => {
       detail: { colorNoise: 35 },
     });
   });
+
+  it("persists crop and geometry settings", async () => {
+    const state = createDefaultEditState();
+    state.geometry = {
+      crop: { x: 0.1, y: 0.15, width: 0.7, height: 0.65 },
+      rotation: 270,
+      straighten: -4.5,
+      flipHorizontal: true,
+      flipVertical: false,
+    };
+    const photo: PhotoRecord = {
+      id: "geometry-photo",
+      order: 0,
+      name: "geometry.png",
+      mimeType: "image/png",
+      size: 3,
+      width: 1200,
+      height: 800,
+      createdAt: 1,
+      updatedAt: 1,
+      editState: state,
+      historyCursor: 0,
+    };
+    await saveImportedPhoto(photo, {
+      photoId: photo.id,
+      original: new Blob(["a"]),
+      preview: new Blob(["b"]),
+      thumbnail: new Blob(["c"]),
+    }, photo.id);
+    const restored = await loadWorkspace();
+    expect(restored.photos[0].editState.geometry).toEqual(state.geometry);
+  });
 });

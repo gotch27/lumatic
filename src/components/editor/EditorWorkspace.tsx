@@ -249,10 +249,10 @@ export function EditorWorkspace() {
               <button aria-selected={panel === "adjustments"} className={panel === "adjustments" ? "is-active" : ""} onClick={() => setPanel("adjustments")} role="tab" type="button">
                 Adjust
               </button>
-              <button aria-selected={panel === "masks"} className={panel === "masks" ? "is-active" : ""} onClick={() => setPanel("masks")} role="tab" type="button">
+              <button aria-selected={panel === "masks"} className={panel === "masks" ? "is-active" : ""} onClick={() => { editorService.setGeometryToolMode("idle"); setPanel("masks"); }} role="tab" type="button">
                 Masks <span className="tab-count">{selectedPhoto.editState.masks.length}</span>
               </button>
-              <button aria-selected={panel === "history"} className={panel === "history" ? "is-active" : ""} onClick={() => setPanel("history")} role="tab" type="button">
+              <button aria-selected={panel === "history"} className={panel === "history" ? "is-active" : ""} onClick={() => { editorService.setGeometryToolMode("idle"); setPanel("history"); }} role="tab" type="button">
                 History <span className="tab-count">{history.length}</span>
               </button>
             </div>

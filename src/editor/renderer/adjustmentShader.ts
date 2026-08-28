@@ -193,6 +193,16 @@ const fragment = `
   uniform float uImageUvScaleY;
   uniform float uImageWidth;
   uniform float uImageHeight;
+  uniform float uGeometryCropX;
+  uniform float uGeometryCropY;
+  uniform float uGeometryCropWidth;
+  uniform float uGeometryCropHeight;
+  uniform float uGeometryRotation;
+  uniform float uGeometryStraighten;
+  uniform float uGeometryFlipHorizontal;
+  uniform float uGeometryFlipVertical;
+  uniform float uGeometryOrientedWidth;
+  uniform float uGeometryOrientedHeight;
   uniform highp vec4 uInputPixel;
   uniform float uToneCurvesActive;
   ${curveUniforms}
@@ -398,6 +408,29 @@ const fragment = `
     return 1.0 - smoothstep(featherStart, 1.0, distanceFromCenter);
   }
 
+  vec2 sourceToGeometryUv(vec2 sourceUv) {
+    vec2 oriented = sourceUv;
+    if (uGeometryRotation > 0.5 && uGeometryRotation < 1.5) {
+      oriented = vec2(1.0 - sourceUv.y, sourceUv.x);
+    } else if (uGeometryRotation >= 1.5 && uGeometryRotation < 2.5) {
+      oriented = vec2(1.0 - sourceUv.x, 1.0 - sourceUv.y);
+    } else if (uGeometryRotation >= 2.5) {
+      oriented = vec2(sourceUv.y, 1.0 - sourceUv.x);
+    }
+    oriented.x = mix(oriented.x, 1.0 - oriented.x, uGeometryFlipHorizontal);
+    oriented.y = mix(oriented.y, 1.0 - oriented.y, uGeometryFlipVertical);
+    vec2 pixelPoint = (oriented - vec2(0.5)) * vec2(uGeometryOrientedWidth, uGeometryOrientedHeight);
+    float cosine = cos(uGeometryStraighten);
+    float sine = sin(uGeometryStraighten);
+    pixelPoint = vec2(
+      pixelPoint.x * cosine - pixelPoint.y * sine,
+      pixelPoint.x * sine + pixelPoint.y * cosine
+    );
+    oriented = pixelPoint / vec2(uGeometryOrientedWidth, uGeometryOrientedHeight) + vec2(0.5);
+    return (oriented - vec2(uGeometryCropX, uGeometryCropY))
+      / vec2(uGeometryCropWidth, uGeometryCropHeight);
+  }
+
   void main(void) {
     vec4 source = texture2D(uTexture, vTextureCoord);
     vec2 sampleStep = uInputPixel.zw * max(0.5, uSharpeningRadius);
@@ -441,7 +474,8 @@ const fragment = `
     float dehaze = uDehaze / 100.0;
     color = (color - vec3(max(0.0, dehaze) * 0.035)) * (1.0 + dehaze * 0.48);
     color = mix(vec3(luminance(color)), color, max(0.0, 1.0 + dehaze * 0.22));
-    vec2 centered = imageUv - vec2(0.5);
+    vec2 geometryUv = sourceToGeometryUv(imageUv);
+    vec2 centered = geometryUv - vec2(0.5);
     centered.x *= mix(1.45, 0.70, (uVignetteRoundness + 100.0) / 200.0);
     float vignetteDistance = length(centered) * 1.4142;
     float vignetteStart = mix(0.18, 0.78, uVignetteMidpoint / 100.0);
@@ -593,6 +627,16 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     uImageUvScaleY: { value: 1, type: "f32" },
     uImageWidth: { value: 1, type: "f32" },
     uImageHeight: { value: 1, type: "f32" },
+    uGeometryCropX: { value: editState.geometry.crop.x, type: "f32" },
+    uGeometryCropY: { value: editState.geometry.crop.y, type: "f32" },
+    uGeometryCropWidth: { value: editState.geometry.crop.width, type: "f32" },
+    uGeometryCropHeight: { value: editState.geometry.crop.height, type: "f32" },
+    uGeometryRotation: { value: editState.geometry.rotation / 90, type: "f32" },
+    uGeometryStraighten: { value: editState.geometry.straighten * Math.PI / 180, type: "f32" },
+    uGeometryFlipHorizontal: { value: editState.geometry.flipHorizontal ? 1 : 0, type: "f32" },
+    uGeometryFlipVertical: { value: editState.geometry.flipVertical ? 1 : 0, type: "f32" },
+    uGeometryOrientedWidth: { value: 1, type: "f32" },
+    uGeometryOrientedHeight: { value: 1, type: "f32" },
   };
   for (let index = 0; index < MAX_GRADIENT_MASKS; index += 1) {
     const mask = editState.masks[index];
@@ -646,6 +690,17 @@ export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEdi
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   setAdjustmentUniforms(uniforms, "u", editState.adjustments);
   setDevelopUniforms(uniforms, editState);
+  uniforms.uGeometryCropX = editState.geometry.crop.x;
+  uniforms.uGeometryCropY = editState.geometry.crop.y;
+  uniforms.uGeometryCropWidth = editState.geometry.crop.width;
+  uniforms.uGeometryCropHeight = editState.geometry.crop.height;
+  uniforms.uGeometryRotation = editState.geometry.rotation / 90;
+  uniforms.uGeometryStraighten = editState.geometry.straighten * Math.PI / 180;
+  uniforms.uGeometryFlipHorizontal = editState.geometry.flipHorizontal ? 1 : 0;
+  uniforms.uGeometryFlipVertical = editState.geometry.flipVertical ? 1 : 0;
+  const quarterOdd = editState.geometry.rotation === 90 || editState.geometry.rotation === 270;
+  uniforms.uGeometryOrientedWidth = quarterOdd ? filter.imageHeight : filter.imageWidth;
+  uniforms.uGeometryOrientedHeight = quarterOdd ? filter.imageWidth : filter.imageHeight;
   for (let index = 0; index < MAX_GRADIENT_MASKS; index += 1) {
     const mask = editState.masks[index];
     const prefix = `uMask${index}`;
@@ -674,6 +729,9 @@ export function setFilterImageSize(filter: AdjustmentFilter, width: number, heig
   uniforms.uImageHeight = Math.max(1, height);
   filter.imageWidth = Math.max(1, width);
   filter.imageHeight = Math.max(1, height);
+  const quarterOdd = filter.editState.geometry.rotation === 90 || filter.editState.geometry.rotation === 270;
+  uniforms.uGeometryOrientedWidth = quarterOdd ? filter.imageHeight : filter.imageWidth;
+  uniforms.uGeometryOrientedHeight = quarterOdd ? filter.imageWidth : filter.imageHeight;
   renderBrushMaskAtlas(filter.brushAtlasCanvas, filter.editState, filter.imageWidth, filter.imageHeight);
   filter.brushAtlasTexture.source.update();
 }

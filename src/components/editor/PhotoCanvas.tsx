@@ -6,13 +6,14 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Button } from "@/components/ui/button";
 import { editorService } from "@/editor/commands/editorService";
 import { createDefaultEditState } from "@/editor/domain/adjustments";
+import { clampCropRect, cloneGeometry, getGeometryOutputDimensions, getSafeCropBounds } from "@/editor/domain/geometry";
 import {
   getGradientGeometry,
   getRadialGradientGeometry,
   type LinearGradientGeometry,
   type RadialGradientGeometry,
 } from "@/editor/domain/masks";
-import type { BrushPoint, EditorMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
+import type { BrushPoint, CropRect, EditorMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
 import { PhotoRenderer } from "@/editor/renderer/PhotoRenderer";
 import { useEditorStore } from "@/editor/state/store";
 
@@ -56,6 +57,11 @@ interface RadialOverlayMask {
   center: { x: number; y: number };
   radiusX: number;
   radiusY: number;
+  angle: number;
+  horizontal: { x: number; y: number };
+  horizontalOpposite: { x: number; y: number };
+  vertical: { x: number; y: number };
+  verticalOpposite: { x: number; y: number };
 }
 
 type OverlayMask = LinearOverlayMask | RadialOverlayMask;
@@ -64,6 +70,14 @@ interface BrushDrag {
   maskId: string;
   strokeId: string;
   lastPoint: BrushPoint;
+}
+
+type CropHandle = "move" | "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+interface CropDrag {
+  kind: CropHandle;
+  initial: CropRect;
+  pointerStart: { x: number; y: number };
 }
 
 function latestMask(photoId: string, maskId: string): EditorMask | null {
@@ -78,8 +92,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   const createDragRef = useRef<CreateDrag | null>(null);
   const maskDragRef = useRef<MaskDrag | null>(null);
   const brushDragRef = useRef<BrushDrag | null>(null);
+  const cropDragRef = useRef<CropDrag | null>(null);
+  const straightenStartRef = useRef<{ x: number; y: number } | null>(null);
   const brushOverlayRef = useRef<HTMLCanvasElement>(null);
   const maskToolMode = useEditorStore((state) => state.maskToolMode);
+  const geometryToolMode = useEditorStore((state) => state.geometryToolMode);
   const selectedMaskId = useEditorStore((state) => state.selectedMaskId);
   const selectedMask = photo.editState.masks.find((mask) => mask.id === selectedMaskId);
   const selectedBrush = selectedMask?.type === "brush" ? selectedMask : null;
@@ -88,8 +105,10 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   const [error, setError] = useState<string | null>(null);
   const [transformVersion, setTransformVersion] = useState(0);
   const [overlayMasks, setOverlayMasks] = useState<OverlayMask[]>([]);
-  const [imageTopLeft, setImageTopLeft] = useState<{ x: number; y: number } | null>(null);
   const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; diameter: number } | null>(null);
+  const [cropScreenRect, setCropScreenRect] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [straightenLine, setStraightenLine] = useState<{ start: { x: number; y: number }; end: { x: number; y: number } } | null>(null);
 
   const pointFromEvent = (clientX: number, clientY: number) => {
     const host = hostRef.current;
@@ -97,6 +116,19 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     if (!host || !renderer) return null;
     const bounds = host.getBoundingClientRect();
     return renderer.screenToImage(clientX - bounds.left, clientY - bounds.top);
+  };
+
+  const geometryPointFromEvent = (clientX: number, clientY: number) => {
+    const host = hostRef.current;
+    const renderer = rendererRef.current;
+    if (!host || !renderer) return null;
+    const bounds = host.getBoundingClientRect();
+    return renderer.screenToGeometry(clientX - bounds.left, clientY - bounds.top);
+  };
+
+  const screenPointFromEvent = (clientX: number, clientY: number) => {
+    const bounds = hostRef.current?.getBoundingClientRect();
+    return bounds ? { x: clientX - bounds.left, y: clientY - bounds.top } : null;
   };
 
   useEffect(() => {
@@ -107,7 +139,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     let active = true;
     renderer
       .mount(host, photo.editState, () => {
-        if (active) setTransformVersion((version) => version + 1);
+        if (active) {
+          setTransformVersion((version) => version + 1);
+          setCropScreenRect(renderer.getCropScreenRect());
+          setStageSize({ width: host.clientWidth, height: host.clientHeight });
+        }
       })
       .then(() => {
         if (!active) {
@@ -147,8 +183,15 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
   }, [photo.id, photo.previewUrl, ready]);
 
   useEffect(() => {
-    rendererRef.current?.setEditState(showOriginal ? createDefaultEditState() : photo.editState);
+    const editState = showOriginal
+      ? { ...createDefaultEditState(), geometry: cloneGeometry(photo.editState.geometry) }
+      : photo.editState;
+    rendererRef.current?.setEditState(editState);
   }, [photo.editState, showOriginal]);
+
+  useEffect(() => {
+    rendererRef.current?.setGeometryEditing(geometryToolMode !== "idle" && !showOriginal);
+  }, [geometryToolMode, showOriginal]);
 
   useEffect(() => {
     const renderer = rendererRef.current;
@@ -165,13 +208,20 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       if (mask.type !== "radial-gradient") return [];
       const center = renderer.imageToScreen(mask.centerX, mask.centerY);
       const horizontal = renderer.imageToScreen(mask.centerX + mask.radiusX, mask.centerY);
+      const horizontalOpposite = renderer.imageToScreen(mask.centerX - mask.radiusX, mask.centerY);
       const vertical = renderer.imageToScreen(mask.centerX, mask.centerY + mask.radiusY);
-      return center && horizontal && vertical ? [{
+      const verticalOpposite = renderer.imageToScreen(mask.centerX, mask.centerY - mask.radiusY);
+      return center && horizontal && horizontalOpposite && vertical && verticalOpposite ? [{
         type: "radial-gradient",
         mask,
         center,
-        radiusX: Math.abs(horizontal.x - center.x),
-        radiusY: Math.abs(vertical.y - center.y),
+        radiusX: Math.hypot(horizontal.x - center.x, horizontal.y - center.y),
+        radiusY: Math.hypot(vertical.x - center.x, vertical.y - center.y),
+        angle: Math.atan2(horizontal.y - center.y, horizontal.x - center.x) * 180 / Math.PI,
+        horizontal,
+        horizontalOpposite,
+        vertical,
+        verticalOpposite,
       }] : [];
     }));
   }, [photo.editState.masks, showOriginal, transformVersion]);
@@ -201,9 +251,19 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     if (!maskContext) return;
     maskContext.setTransform(density, 0, 0, density, 0, 0);
     const imageStart = renderer.imageToScreen(0, 0);
-    const imageEnd = renderer.imageToScreen(1, 1);
-    if (!imageStart || !imageEnd) return;
-    const displayedShortEdge = Math.min(Math.abs(imageEnd.x - imageStart.x), Math.abs(imageEnd.y - imageStart.y));
+    const imageHorizontal = renderer.imageToScreen(1, 0);
+    const imageVertical = renderer.imageToScreen(0, 1);
+    if (!imageStart || !imageHorizontal || !imageVertical) return;
+    const displayedShortEdge = Math.min(
+      Math.hypot(imageHorizontal.x - imageStart.x, imageHorizontal.y - imageStart.y),
+      Math.hypot(imageVertical.x - imageStart.x, imageVertical.y - imageStart.y),
+    );
+
+    const crop = renderer.getCropScreenRect();
+    output.save();
+    output.beginPath();
+    output.rect(crop.x, crop.y, crop.width, crop.height);
+    output.clip();
 
     for (const stroke of selectedBrush.strokes) {
       maskContext.globalCompositeOperation = stroke.mode === "erase" ? "destination-out" : "source-over";
@@ -223,10 +283,9 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       }
     }
 
-    output.save();
     if (selectedBrush.inverted) {
       output.fillStyle = "rgba(239,68,68,.28)";
-      output.fillRect(imageStart.x, imageStart.y, imageEnd.x - imageStart.x, imageEnd.y - imageStart.y);
+      output.fillRect(crop.x, crop.y, crop.width, crop.height);
       output.globalCompositeOperation = "destination-out";
       output.drawImage(maskCanvas, 0, 0, width, height);
     } else {
@@ -237,11 +296,6 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     }
     output.restore();
   }, [photo.editState.masks, selectedBrush, showOriginal, transformVersion]);
-
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    setImageTopLeft(ready && renderer ? renderer.imageToScreen(0, 0) : null);
-  }, [photo.id, ready, transformVersion]);
 
   const fit = () => {
     rendererRef.current?.fit();
@@ -263,14 +317,15 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     }
     const bounds = host.getBoundingClientRect();
     const imageStart = renderer.imageToScreen(0, 0);
-    const imageEnd = renderer.imageToScreen(1, 1);
-    if (!imageStart || !imageEnd) return;
+    const imageHorizontal = renderer.imageToScreen(1, 0);
+    const imageVertical = renderer.imageToScreen(0, 1);
+    if (!imageStart || !imageHorizontal || !imageVertical) return;
     setBrushCursor({
       x: clientX - bounds.left,
       y: clientY - bounds.top,
       diameter: selectedBrush.size * Math.min(
-        Math.abs(imageEnd.x - imageStart.x),
-        Math.abs(imageEnd.y - imageStart.y),
+        Math.hypot(imageHorizontal.x - imageStart.x, imageHorizontal.y - imageStart.y),
+        Math.hypot(imageVertical.x - imageStart.x, imageVertical.y - imageStart.y),
       ),
     });
   };
@@ -362,11 +417,76 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     maskDragRef.current = null;
   };
 
+  const startCropDrag = (event: ReactPointerEvent<SVGElement>, kind: CropHandle) => {
+    const point = geometryPointFromEvent(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    cropDragRef.current = {
+      kind,
+      initial: { ...photo.editState.geometry.crop },
+      pointerStart: point,
+    };
+  };
+
+  const moveCropDrag = (event: ReactPointerEvent<SVGElement>) => {
+    const drag = cropDragRef.current;
+    const point = geometryPointFromEvent(event.clientX, event.clientY);
+    if (!drag || !point) return;
+    const bounds = getSafeCropBounds(photo.width, photo.height, photo.editState.geometry);
+    const deltaX = point.x - drag.pointerStart.x;
+    const deltaY = point.y - drag.pointerStart.y;
+    const initial = drag.initial;
+    const right = initial.x + initial.width;
+    const bottom = initial.y + initial.height;
+    let next = { ...initial };
+    if (drag.kind === "move") {
+      next.x += deltaX;
+      next.y += deltaY;
+    } else {
+      if (drag.kind.includes("w")) {
+        next.x = Math.min(right - 0.02, Math.max(bounds.x, initial.x + deltaX));
+        next.width = right - next.x;
+      }
+      if (drag.kind.includes("e")) next.width = Math.max(0.02, initial.width + deltaX);
+      if (drag.kind.includes("n")) {
+        next.y = Math.min(bottom - 0.02, Math.max(bounds.y, initial.y + deltaY));
+        next.height = bottom - next.y;
+      }
+      if (drag.kind.includes("s")) next.height = Math.max(0.02, initial.height + deltaY);
+    }
+    next = clampCropRect(next, bounds);
+    editorService.previewCrop(photo.id, next);
+  };
+
+  const finishCropDrag = (event: ReactPointerEvent<SVGElement>) => {
+    if (!cropDragRef.current) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const latest = useEditorStore.getState().photos.find((item) => item.id === photo.id);
+    if (latest) editorService.commitCrop(photo.id, latest.editState.geometry.crop);
+    cropDragRef.current = null;
+    useEditorStore.setState({ geometryToolMode: "crop" });
+  };
+
+  const outputDimensions = getGeometryOutputDimensions(photo.width, photo.height, photo.editState.geometry);
+  const stageWidth = stageSize.width;
+  const stageHeight = stageSize.height;
+
   return (
     <div className="photo-stage" data-testid="photo-stage">
       <div
-        className={`photo-canvas-host ${maskToolMode !== "idle" ? "is-drawing-mask" : ""} ${maskToolMode === "paint-brush" ? "is-painting-brush" : ""}`}
+        className={`photo-canvas-host ${maskToolMode !== "idle" ? "is-drawing-mask" : ""} ${maskToolMode === "paint-brush" ? "is-painting-brush" : ""} ${geometryToolMode !== "idle" ? "is-editing-geometry" : ""}`}
         onPointerDown={(event) => {
+          if (geometryToolMode === "straighten") {
+            const point = screenPointFromEvent(event.clientX, event.clientY);
+            if (!point) return;
+            straightenStartRef.current = point;
+            setStraightenLine({ start: point, end: point });
+            event.currentTarget.setPointerCapture(event.pointerId);
+            return;
+          }
+          if (geometryToolMode === "crop") return;
           if (maskToolMode === "paint-brush") {
             const point = pointFromEvent(event.clientX, event.clientY);
             if (!point || !selectedBrush) return;
@@ -398,6 +518,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
+          if (straightenStartRef.current) {
+            const point = screenPointFromEvent(event.clientX, event.clientY);
+            if (point) setStraightenLine({ start: straightenStartRef.current, end: point });
+            return;
+          }
           updateBrushCursor(event.clientX, event.clientY);
           const brushDrag = brushDragRef.current;
           if (brushDrag) {
@@ -455,6 +580,18 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           setTransformVersion((version) => version + 1);
         }}
         onPointerUp={(event) => {
+          if (straightenStartRef.current) {
+            const end = screenPointFromEvent(event.clientX, event.clientY);
+            const start = straightenStartRef.current;
+            if (end && Math.hypot(end.x - start.x, end.y - start.y) > 8) {
+              let angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
+              if (angle > 90) angle -= 180;
+              if (angle < -90) angle += 180;
+              editorService.commitStraighten(photo.id, Math.min(45, Math.max(-45, -angle)));
+            }
+            straightenStartRef.current = null;
+            setStraightenLine(null);
+          }
           const brushDrag = brushDragRef.current;
           if (brushDrag) {
             editorService.commitBrushStroke(photo.id, brushDrag.maskId);
@@ -471,7 +608,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
             createDragRef.current = null;
           }
           panRef.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
         }}
         onPointerLeave={() => {
           if (!brushDragRef.current) setBrushCursor(null);
@@ -485,6 +622,82 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         }}
         ref={hostRef}
       />
+
+      {geometryToolMode === "crop" && cropScreenRect.width > 0 && (
+        <svg aria-label="Crop overlay" className="crop-overlay" data-testid="crop-overlay">
+          <g className="crop-dim">
+            <rect x="0" y="0" width={stageWidth} height={Math.max(0, cropScreenRect.y)} />
+            <rect x="0" y={cropScreenRect.y + cropScreenRect.height} width={stageWidth} height={Math.max(0, stageHeight - cropScreenRect.y - cropScreenRect.height)} />
+            <rect x="0" y={cropScreenRect.y} width={Math.max(0, cropScreenRect.x)} height={cropScreenRect.height} />
+            <rect x={cropScreenRect.x + cropScreenRect.width} y={cropScreenRect.y} width={Math.max(0, stageWidth - cropScreenRect.x - cropScreenRect.width)} height={cropScreenRect.height} />
+          </g>
+          <rect
+            className="crop-move-hit"
+            data-testid="crop-frame"
+            x={cropScreenRect.x}
+            y={cropScreenRect.y}
+            width={cropScreenRect.width}
+            height={cropScreenRect.height}
+            onPointerDown={(event) => startCropDrag(event, "move")}
+            onPointerMove={moveCropDrag}
+            onPointerUp={finishCropDrag}
+            onPointerCancel={finishCropDrag}
+          />
+          <g className="crop-grid">
+            <line x1={cropScreenRect.x + cropScreenRect.width / 3} x2={cropScreenRect.x + cropScreenRect.width / 3} y1={cropScreenRect.y} y2={cropScreenRect.y + cropScreenRect.height} />
+            <line x1={cropScreenRect.x + cropScreenRect.width * 2 / 3} x2={cropScreenRect.x + cropScreenRect.width * 2 / 3} y1={cropScreenRect.y} y2={cropScreenRect.y + cropScreenRect.height} />
+            <line x1={cropScreenRect.x} x2={cropScreenRect.x + cropScreenRect.width} y1={cropScreenRect.y + cropScreenRect.height / 3} y2={cropScreenRect.y + cropScreenRect.height / 3} />
+            <line x1={cropScreenRect.x} x2={cropScreenRect.x + cropScreenRect.width} y1={cropScreenRect.y + cropScreenRect.height * 2 / 3} y2={cropScreenRect.y + cropScreenRect.height * 2 / 3} />
+          </g>
+          <rect className="crop-frame-border" x={cropScreenRect.x} y={cropScreenRect.y} width={cropScreenRect.width} height={cropScreenRect.height} />
+          {([
+            ["nw", cropScreenRect.x, cropScreenRect.y],
+            ["ne", cropScreenRect.x + cropScreenRect.width, cropScreenRect.y],
+            ["sw", cropScreenRect.x, cropScreenRect.y + cropScreenRect.height],
+            ["se", cropScreenRect.x + cropScreenRect.width, cropScreenRect.y + cropScreenRect.height],
+          ] as const).map(([kind, x, y]) => (
+            <rect
+              className={`crop-handle crop-handle-${kind}`}
+              data-testid={`crop-handle-${kind}`}
+              height="12"
+              key={kind}
+              onPointerDown={(event) => startCropDrag(event, kind)}
+              onPointerMove={moveCropDrag}
+              onPointerUp={finishCropDrag}
+              onPointerCancel={finishCropDrag}
+              width="12"
+              x={x - 6}
+              y={y - 6}
+            />
+          ))}
+          {([
+            ["n", cropScreenRect.x + cropScreenRect.width / 2, cropScreenRect.y],
+            ["s", cropScreenRect.x + cropScreenRect.width / 2, cropScreenRect.y + cropScreenRect.height],
+            ["w", cropScreenRect.x, cropScreenRect.y + cropScreenRect.height / 2],
+            ["e", cropScreenRect.x + cropScreenRect.width, cropScreenRect.y + cropScreenRect.height / 2],
+          ] as const).map(([kind, x, y]) => (
+            <circle
+              className={`crop-handle crop-handle-${kind}`}
+              cx={x}
+              cy={y}
+              key={kind}
+              onPointerDown={(event) => startCropDrag(event, kind)}
+              onPointerMove={moveCropDrag}
+              onPointerUp={finishCropDrag}
+              onPointerCancel={finishCropDrag}
+              r="6"
+            />
+          ))}
+        </svg>
+      )}
+
+      {straightenLine && (
+        <svg aria-hidden="true" className="straighten-overlay">
+          <line x1={straightenLine.start.x} y1={straightenLine.start.y} x2={straightenLine.end.x} y2={straightenLine.end.y} />
+          <circle cx={straightenLine.start.x} cy={straightenLine.start.y} r="4" />
+          <circle cx={straightenLine.end.x} cy={straightenLine.end.y} r="4" />
+        </svg>
+      )}
 
       <canvas aria-hidden="true" className="brush-mask-overlay" data-testid="brush-mask-overlay" ref={brushOverlayRef} />
       {brushCursor && maskToolMode === "paint-brush" && (
@@ -504,7 +717,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         <svg aria-label="Gradient overlay" className="gradient-overlay" data-testid="gradient-overlay">
           {overlayMasks.map((overlay) => {
             if (overlay.type === "radial-gradient") {
-              const { mask, center, radiusX, radiusY } = overlay;
+              const { mask, center, radiusX, radiusY, angle, horizontal, horizontalOpposite, vertical, verticalOpposite } = overlay;
               const selected = mask.id === selectedMaskId;
               const sharedHandlers = {
                 onPointerMove: moveMaskDrag,
@@ -522,6 +735,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
                     cy={center.y}
                     rx={radiusX}
                     ry={radiusY}
+                    transform={`rotate(${angle} ${center.x} ${center.y})`}
                   />
                   <ellipse
                     className={`radial-boundary ${selected ? "is-selected" : ""}`}
@@ -529,11 +743,12 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
                     cy={center.y}
                     rx={radiusX}
                     ry={radiusY}
+                    transform={`rotate(${angle} ${center.x} ${center.y})`}
                   />
                   {selected && (
                     <>
-                      <line className="radial-axis" x1={center.x - radiusX} x2={center.x + radiusX} y1={center.y} y2={center.y} />
-                      <line className="radial-axis" x1={center.x} x2={center.x} y1={center.y - radiusY} y2={center.y + radiusY} />
+                      <line className="radial-axis" x1={horizontalOpposite.x} x2={horizontal.x} y1={horizontalOpposite.y} y2={horizontal.y} />
+                      <line className="radial-axis" x1={verticalOpposite.x} x2={vertical.x} y1={verticalOpposite.y} y2={vertical.y} />
                       <circle
                         {...sharedHandlers}
                         className="gradient-handle radial-center-handle"
@@ -548,8 +763,8 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
                         className="gradient-handle gradient-handle-end"
                         data-testid="radial-gradient-radius-x"
                         onPointerDown={(event) => startMaskDrag(event, mask, "radius-x")}
-                        cx={center.x + radiusX}
-                        cy={center.y}
+                        cx={horizontal.x}
+                        cy={horizontal.y}
                         r="6"
                       />
                       <circle
@@ -557,8 +772,8 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
                         className="gradient-handle gradient-handle-end"
                         data-testid="radial-gradient-radius-y"
                         onPointerDown={(event) => startMaskDrag(event, mask, "radius-y")}
-                        cx={center.x}
-                        cy={center.y + radiusY}
+                        cx={vertical.x}
+                        cy={vertical.y}
                         r="6"
                       />
                     </>
@@ -631,11 +846,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         </svg>
       )}
 
-      {imageTopLeft && (
+      {cropScreenRect.width > 0 && (
         <div
           className="photo-name-label"
           data-testid="canvas-photo-name"
-          style={{ left: imageTopLeft.x, top: imageTopLeft.y }}
+          style={{ left: cropScreenRect.x, top: cropScreenRect.y }}
           title={photo.name}
         >
           {photo.name}
@@ -649,6 +864,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
             : `Drag on photo to draw ${maskToolMode === "create-linear" ? "linear" : "radial"} gradient · Esc to cancel`}
         </div>
       )}
+      {geometryToolMode === "straighten" && <div className="mask-tool-badge">Drag along a horizon or vertical edge · Esc to cancel</div>}
       {!ready && !error && (
         <div className="absolute inset-0 grid place-items-center text-xs text-zinc-500">
           <span className="loading-shimmer">Preparing GPU preview…</span>
@@ -669,7 +885,7 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       </div>
       {showOriginal && <div className="before-badge">ORIGINAL</div>}
       <div className="photo-metadata-pill">
-        <span>{photo.width} × {photo.height}</span><span className="text-zinc-600">·</span><span>{photo.mimeType === "image/png" ? "PNG" : "JPEG"}</span>
+        <span>{outputDimensions.width} × {outputDimensions.height}</span><span className="text-zinc-600">·</span><span>{photo.mimeType === "image/png" ? "PNG" : "JPEG"}</span>
       </div>
     </div>
   );

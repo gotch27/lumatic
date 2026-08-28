@@ -1,11 +1,12 @@
 "use client";
 
-import { Aperture, Palette, RotateCcw, ScanLine, Sparkles } from "lucide-react";
+import { Aperture, Crop, Palette, RotateCcw, ScanLine, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ColorTools } from "./ColorTools";
 import { DetailPanel } from "./DetailPanel";
 import { EffectsPanel } from "./EffectsPanel";
+import { GeometryPanel } from "./GeometryPanel";
 import { ToneCurveEditor } from "./ToneCurveEditor";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -80,7 +81,7 @@ function AdjustmentControl({ photo, definition }: { photo: RuntimePhoto; definit
 }
 
 export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
-  const [section, setSection] = useState<"light" | "color" | "effects" | "detail">("light");
+  const [section, setSection] = useState<"light" | "color" | "effects" | "detail" | "geometry">("light");
   const groups = useMemo(
     () => ({
       light: ADJUSTMENT_DEFINITIONS.filter((item) => item.group === "light"),
@@ -97,8 +98,19 @@ export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
           ["color", "Color", Palette],
           ["effects", "Effects", Sparkles],
           ["detail", "Detail", ScanLine],
+          ["geometry", "Crop", Crop],
         ] as const).map(([key, label, Icon]) => (
-          <button aria-selected={section === key} className={section === key ? "is-active" : ""} key={key} onClick={() => setSection(key)} role="tab" type="button"><Icon className="size-3" />{label}</button>
+          <button
+            aria-selected={section === key}
+            className={section === key ? "is-active" : ""}
+            key={key}
+            onClick={() => {
+              if (key !== "geometry") editorService.setGeometryToolMode("idle");
+              setSection(key);
+            }}
+            role="tab"
+            type="button"
+          ><Icon className="size-3" />{label}</button>
         ))}
       </div>
       {section === "light" && <>
@@ -121,6 +133,7 @@ export function AdjustmentPanel({ photo }: { photo: RuntimePhoto }) {
       </>}
       {section === "effects" && <EffectsPanel photo={photo} />}
       {section === "detail" && <DetailPanel photo={photo} />}
+      {section === "geometry" && <GeometryPanel photo={photo} />}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Application, Sprite, Texture } from "pixi.js";
 
 import type { RuntimePhoto } from "@/editor/domain/types";
+import { getGeometryOutputDimensions, getOrientedDimensions } from "@/editor/domain/geometry";
 import {
   createAdjustmentFilter,
   destroyAdjustmentFilter,
@@ -49,14 +50,14 @@ export interface ExportOptions {
 
 export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = {}): Promise<void> {
   const original = await getOriginalAsset(photo.id);
-  const output = document.createElement("canvas");
-  output.width = photo.width;
-  output.height = photo.height;
-  const outputContext = output.getContext("2d", { alpha: photo.mimeType === "image/png" });
-  if (!outputContext) throw new Error("A full-resolution export canvas could not be created.");
+  const adjusted = document.createElement("canvas");
+  adjusted.width = photo.width;
+  adjusted.height = photo.height;
+  const adjustedContext = adjusted.getContext("2d", { alpha: photo.mimeType === "image/png" });
+  if (!adjustedContext) throw new Error("A full-resolution export canvas could not be created.");
   if (photo.mimeType === "image/jpeg") {
-    outputContext.fillStyle = "#000";
-    outputContext.fillRect(0, 0, output.width, output.height);
+    adjustedContext.fillStyle = "#000";
+    adjustedContext.fillRect(0, 0, adjusted.width, adjusted.height);
   }
 
   const columns = Math.ceil(photo.width / TILE_EDGE);
@@ -111,7 +112,7 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
         application.renderer.resize(sourceWidth, sourceHeight);
         application.stage.addChild(sprite);
         application.render();
-        outputContext.drawImage(application.canvas, cropX, cropY, width, height, x, y, width, height);
+        adjustedContext.drawImage(application.canvas, cropX, cropY, width, height, x, y, width, height);
         application.stage.removeChild(sprite);
         sprite.destroy();
         texture.destroy(true);
@@ -122,6 +123,33 @@ export async function exportPhoto(photo: RuntimePhoto, options: ExportOptions = 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       }
     }
+    options.onProgress?.(0.98, "Applying crop & geometry");
+    const dimensions = getGeometryOutputDimensions(photo.width, photo.height, photo.editState.geometry);
+    const oriented = getOrientedDimensions(photo.width, photo.height, photo.editState.geometry.rotation);
+    const output = document.createElement("canvas");
+    output.width = dimensions.width;
+    output.height = dimensions.height;
+    const outputContext = output.getContext("2d", { alpha: photo.mimeType === "image/png" });
+    if (!outputContext) throw new Error("The cropped export canvas could not be created.");
+    if (photo.mimeType === "image/jpeg") {
+      outputContext.fillStyle = "#000";
+      outputContext.fillRect(0, 0, output.width, output.height);
+    }
+    const geometry = photo.editState.geometry;
+    const cropCenterX = geometry.crop.x + geometry.crop.width / 2;
+    const cropCenterY = geometry.crop.y + geometry.crop.height / 2;
+    outputContext.save();
+    outputContext.translate(output.width / 2, output.height / 2);
+    outputContext.translate(
+      -(cropCenterX - 0.5) * oriented.width,
+      -(cropCenterY - 0.5) * oriented.height,
+    );
+    outputContext.rotate(geometry.straighten * Math.PI / 180);
+    outputContext.scale(geometry.flipHorizontal ? -1 : 1, geometry.flipVertical ? -1 : 1);
+    outputContext.rotate(geometry.rotation * Math.PI / 180);
+    outputContext.drawImage(adjusted, -photo.width / 2, -photo.height / 2);
+    outputContext.restore();
+
     options.onProgress?.(1, "Encoding full-resolution image");
     const blob = await canvasToBlob(output, photo);
     downloadBlob(blob, editedFilename(photo));

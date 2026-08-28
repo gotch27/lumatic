@@ -76,6 +76,23 @@ export interface DetailValues {
   colorNoiseSmoothness: number;
 }
 
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type QuarterRotation = 0 | 90 | 180 | 270;
+
+export interface GeometryValues {
+  crop: CropRect;
+  rotation: QuarterRotation;
+  straighten: number;
+  flipHorizontal: boolean;
+  flipVertical: boolean;
+}
+
 interface BaseMask {
   id: string;
   name: string;
@@ -128,6 +145,7 @@ export type EditorMask = LinearGradientMask | RadialGradientMask | BrushMask;
 
 export interface PhotoEditState {
   adjustments: AdjustmentValues;
+  geometry: GeometryValues;
   toneCurve: ToneCurve;
   colorMix: ColorMix;
   colorGrading: ColorGrading;
@@ -168,7 +186,8 @@ export type HistoryEventType =
   | "colorMix.changed"
   | "colorGrading.changed"
   | "effect.changed"
-  | "detail.changed";
+  | "detail.changed"
+  | "geometry.changed";
 
 export interface HistoryEvent {
   id: string;
