@@ -65,6 +65,7 @@ describe("adjustment domain", () => {
       id: "mask",
       type: "linear-gradient",
       name: "Linear Gradient 1",
+      inverted: false,
       startX: 0.5,
       startY: 0,
       endX: 0.5,

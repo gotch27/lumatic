@@ -1,6 +1,6 @@
 import { Filter, GlProgram, Matrix, type Sprite } from "pixi.js";
 
-import { MAX_LINEAR_GRADIENTS } from "@/editor/domain/masks";
+import { MAX_GRADIENT_MASKS } from "@/editor/domain/masks";
 import {
   COLOR_GRADE_RANGES,
   COLOR_MIX_CHANNELS,
@@ -59,23 +59,37 @@ function adjustmentArguments(prefix: string): string {
   return adjustmentNames.map((name) => `${prefix}${name}`).join(", ");
 }
 
-const maskUniforms = Array.from({ length: MAX_LINEAR_GRADIENTS }, (_, index) => `
+const maskUniforms = Array.from({ length: MAX_GRADIENT_MASKS }, (_, index) => `
   uniform float uMask${index}Active;
+  uniform float uMask${index}Type;
+  uniform float uMask${index}Inverted;
   uniform float uMask${index}StartX;
   uniform float uMask${index}StartY;
   uniform float uMask${index}EndX;
   uniform float uMask${index}EndY;
   uniform float uMask${index}Feather;
+  uniform float uMask${index}CenterX;
+  uniform float uMask${index}CenterY;
+  uniform float uMask${index}RadiusX;
+  uniform float uMask${index}RadiusY;
   ${adjustmentUniformDeclarations(`uMask${index}`)}
 `).join("\n");
 
-const maskApplications = Array.from({ length: MAX_LINEAR_GRADIENTS }, (_, index) => `
-    float maskWeight${index} = uMask${index}Active * linearGradientWeight(
+const maskApplications = Array.from({ length: MAX_GRADIENT_MASKS }, (_, index) => `
+    float linearMaskWeight${index} = linearGradientWeight(
       imageUv,
       vec2(uMask${index}StartX, uMask${index}StartY),
       vec2(uMask${index}EndX, uMask${index}EndY),
       uMask${index}Feather
     );
+    float radialMaskWeight${index} = radialGradientWeight(
+      imageUv,
+      vec2(uMask${index}CenterX, uMask${index}CenterY),
+      vec2(uMask${index}RadiusX, uMask${index}RadiusY),
+      uMask${index}Feather
+    );
+    float maskWeight${index} = mix(linearMaskWeight${index}, radialMaskWeight${index}, uMask${index}Type);
+    maskWeight${index} = mix(maskWeight${index}, 1.0 - maskWeight${index}, uMask${index}Inverted) * uMask${index}Active;
     vec3 maskColor${index} = applyAdjustments(color, ${adjustmentArguments(`uMask${index}`)});
     color = mix(color, maskColor${index}, clamp(maskWeight${index}, 0.0, 1.0));
 `).join("\n");
@@ -358,6 +372,15 @@ const fragment = `
     return 1.0 - mix(hardTransition, softTransition, clamp(feather, 0.0, 1.0));
   }
 
+  float radialGradientWeight(vec2 uv, vec2 centerPoint, vec2 radius, float feather) {
+    vec2 imageSize = vec2(uImageWidth, uImageHeight);
+    vec2 delta = (uv - centerPoint) * imageSize;
+    vec2 pixelRadius = max(radius * imageSize, vec2(1.0));
+    float distanceFromCenter = length(delta / pixelRadius);
+    float featherStart = mix(0.98, 0.0, clamp(feather, 0.0, 1.0));
+    return 1.0 - smoothstep(featherStart, 1.0, distanceFromCenter);
+  }
+
   void main(void) {
     vec4 source = texture2D(uTexture, vTextureCoord);
     vec2 sampleStep = uInputPixel.zw * max(0.5, uSharpeningRadius);
@@ -547,15 +570,21 @@ export function createAdjustmentFilter(editState: PhotoEditState): AdjustmentFil
     uImageWidth: { value: 1, type: "f32" },
     uImageHeight: { value: 1, type: "f32" },
   };
-  for (let index = 0; index < MAX_LINEAR_GRADIENTS; index += 1) {
+  for (let index = 0; index < MAX_GRADIENT_MASKS; index += 1) {
     const mask = editState.masks[index];
     const prefix = `uMask${index}`;
     resources[`${prefix}Active`] = { value: mask ? 1 : 0, type: "f32" };
-    resources[`${prefix}StartX`] = { value: mask?.startX ?? 0, type: "f32" };
-    resources[`${prefix}StartY`] = { value: mask?.startY ?? 0, type: "f32" };
-    resources[`${prefix}EndX`] = { value: mask?.endX ?? 0, type: "f32" };
-    resources[`${prefix}EndY`] = { value: mask?.endY ?? 0, type: "f32" };
+    resources[`${prefix}Type`] = { value: mask?.type === "radial-gradient" ? 1 : 0, type: "f32" };
+    resources[`${prefix}Inverted`] = { value: mask?.inverted ? 1 : 0, type: "f32" };
+    resources[`${prefix}StartX`] = { value: mask?.type === "linear-gradient" ? mask.startX : 0, type: "f32" };
+    resources[`${prefix}StartY`] = { value: mask?.type === "linear-gradient" ? mask.startY : 0, type: "f32" };
+    resources[`${prefix}EndX`] = { value: mask?.type === "linear-gradient" ? mask.endX : 0, type: "f32" };
+    resources[`${prefix}EndY`] = { value: mask?.type === "linear-gradient" ? mask.endY : 0, type: "f32" };
     resources[`${prefix}Feather`] = { value: mask?.feather ?? 0, type: "f32" };
+    resources[`${prefix}CenterX`] = { value: mask?.type === "radial-gradient" ? mask.centerX : 0, type: "f32" };
+    resources[`${prefix}CenterY`] = { value: mask?.type === "radial-gradient" ? mask.centerY : 0, type: "f32" };
+    resources[`${prefix}RadiusX`] = { value: mask?.type === "radial-gradient" ? mask.radiusX : 0, type: "f32" };
+    resources[`${prefix}RadiusY`] = { value: mask?.type === "radial-gradient" ? mask.radiusY : 0, type: "f32" };
     Object.assign(resources, defineAdjustmentUniforms(prefix, mask?.adjustments ?? editState.adjustments));
   }
   const filter = new Filter({
@@ -585,15 +614,21 @@ export function setFilterEditState(filter: AdjustmentFilter, editState: PhotoEdi
   const uniforms = filter.resources.adjustmentUniforms.uniforms;
   setAdjustmentUniforms(uniforms, "u", editState.adjustments);
   setDevelopUniforms(uniforms, editState);
-  for (let index = 0; index < MAX_LINEAR_GRADIENTS; index += 1) {
+  for (let index = 0; index < MAX_GRADIENT_MASKS; index += 1) {
     const mask = editState.masks[index];
     const prefix = `uMask${index}`;
     uniforms[`${prefix}Active`] = mask ? 1 : 0;
-    uniforms[`${prefix}StartX`] = mask?.startX ?? 0;
-    uniforms[`${prefix}StartY`] = mask?.startY ?? 0;
-    uniforms[`${prefix}EndX`] = mask?.endX ?? 0;
-    uniforms[`${prefix}EndY`] = mask?.endY ?? 0;
+    uniforms[`${prefix}Type`] = mask?.type === "radial-gradient" ? 1 : 0;
+    uniforms[`${prefix}Inverted`] = mask?.inverted ? 1 : 0;
+    uniforms[`${prefix}StartX`] = mask?.type === "linear-gradient" ? mask.startX : 0;
+    uniforms[`${prefix}StartY`] = mask?.type === "linear-gradient" ? mask.startY : 0;
+    uniforms[`${prefix}EndX`] = mask?.type === "linear-gradient" ? mask.endX : 0;
+    uniforms[`${prefix}EndY`] = mask?.type === "linear-gradient" ? mask.endY : 0;
     uniforms[`${prefix}Feather`] = mask?.feather ?? 0;
+    uniforms[`${prefix}CenterX`] = mask?.type === "radial-gradient" ? mask.centerX : 0;
+    uniforms[`${prefix}CenterY`] = mask?.type === "radial-gradient" ? mask.centerY : 0;
+    uniforms[`${prefix}RadiusX`] = mask?.type === "radial-gradient" ? mask.radiusX : 0;
+    uniforms[`${prefix}RadiusY`] = mask?.type === "radial-gradient" ? mask.radiusY : 0;
     if (mask) setAdjustmentUniforms(uniforms, prefix, mask.adjustments);
   }
 }

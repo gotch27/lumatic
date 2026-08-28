@@ -1,6 +1,6 @@
 "use client";
 
-import { Blend, MousePointer2, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Blend, CircleDashed, FlipHorizontal2, RotateCcw, Trash2, X } from "lucide-react";
 import { useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,8 @@ import { Slider } from "@/components/ui/slider";
 import { editorService } from "@/editor/commands/editorService";
 import { ADJUSTMENT_DEFINITIONS, DEFAULT_ADJUSTMENTS } from "@/editor/domain/adjustments";
 import type { AdjustmentDefinition } from "@/editor/domain/adjustments";
-import { getGradientGeometry, MAX_LINEAR_GRADIENTS } from "@/editor/domain/masks";
-import type { LinearGradientMask, RuntimePhoto } from "@/editor/domain/types";
+import { getGradientGeometry, getRadialGradientGeometry, MAX_GRADIENT_MASKS } from "@/editor/domain/masks";
+import type { GradientMask, RuntimePhoto } from "@/editor/domain/types";
 import { useEditorStore } from "@/editor/state/store";
 
 function LocalAdjustmentControl({
@@ -18,7 +18,7 @@ function LocalAdjustmentControl({
   photo,
 }: {
   definition: AdjustmentDefinition;
-  mask: LinearGradientMask;
+  mask: GradientMask;
   photo: RuntimePhoto;
 }) {
   const value = mask.adjustments[definition.key];
@@ -80,14 +80,54 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
     light: ADJUSTMENT_DEFINITIONS.filter((item) => item.group === "light"),
     color: ADJUSTMENT_DEFINITIONS.filter((item) => item.group === "color"),
   }), []);
-  const toggleDraw = () => editorService.setMaskToolMode(maskToolMode === "create-linear" ? "idle" : "create-linear");
+  const selectTool = (tool: "create-linear" | "create-radial") => {
+    editorService.setMaskToolMode(maskToolMode === tool ? "idle" : tool);
+  };
+
+  const previewFeather = (feather: number) => {
+    if (!selectedMask) return;
+    if (selectedMask.type === "linear-gradient") {
+      editorService.previewLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather });
+    } else {
+      editorService.previewRadialGradientGeometry(photo.id, selectedMask.id, { ...getRadialGradientGeometry(selectedMask), feather });
+    }
+  };
+
+  const commitFeather = (feather: number) => {
+    if (!selectedMask) return;
+    if (selectedMask.type === "linear-gradient") {
+      editorService.commitLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather });
+    } else {
+      editorService.commitRadialGradientGeometry(photo.id, selectedMask.id, { ...getRadialGradientGeometry(selectedMask), feather });
+    }
+  };
 
   return (
     <div className="panel-scroll" data-testid="masks-panel">
       <section className="mask-list-section">
         <div className="flex items-center justify-between px-3 pb-2 pt-3">
-          <span className="text-[11px] font-medium text-zinc-400">Linear gradients</span>
-          <span className="font-mono text-[9px] text-zinc-600">{photo.editState.masks.length}/{MAX_LINEAR_GRADIENTS}</span>
+          <span className="text-[11px] font-medium text-zinc-400">Masks</span>
+          <span className="font-mono text-[9px] text-zinc-600">{photo.editState.masks.length}/{MAX_GRADIENT_MASKS}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 px-2 pb-2">
+          <Button
+            aria-label={maskToolMode === "create-linear" ? "Cancel linear gradient" : "Draw linear gradient"}
+            disabled={photo.editState.masks.length >= MAX_GRADIENT_MASKS}
+            onClick={() => selectTool("create-linear")}
+            size="sm"
+            variant={maskToolMode === "create-linear" ? "secondary" : "ghost"}
+          >
+            {maskToolMode === "create-linear" ? <X className="size-3.5" /> : <Blend className="size-3.5" />} Linear
+          </Button>
+          <Button
+            aria-label={maskToolMode === "create-radial" ? "Cancel radial gradient" : "Draw radial gradient"}
+            disabled={photo.editState.masks.length >= MAX_GRADIENT_MASKS}
+            onClick={() => selectTool("create-radial")}
+            size="sm"
+            variant={maskToolMode === "create-radial" ? "secondary" : "ghost"}
+          >
+            {maskToolMode === "create-radial" ? <X className="size-3.5" /> : <CircleDashed className="size-3.5" />} Radial
+          </Button>
         </div>
         <div className="space-y-1 px-2">
           {photo.editState.masks.map((mask) => (
@@ -98,47 +138,34 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
               onClick={() => editorService.selectMask(mask.id)}
               type="button"
             >
-              <Blend className="size-3.5" />
+              {mask.type === "linear-gradient" ? <Blend className="size-3.5" /> : <CircleDashed className="size-3.5" />}
               <span className="min-w-0 flex-1 truncate text-left">{mask.name}</span>
               <span className="size-1.5 rounded-full bg-zinc-500" />
             </button>
           ))}
         </div>
-        <div className="px-2 pb-3 pt-2">
-          <Button className="w-full" disabled={photo.editState.masks.length >= MAX_LINEAR_GRADIENTS} onClick={toggleDraw} size="sm" variant={maskToolMode === "create-linear" ? "secondary" : "ghost"}>
-            {maskToolMode === "create-linear" ? <X className="size-3.5" /> : <Plus className="size-3.5" />}
-            {maskToolMode === "create-linear" ? "Cancel drawing" : "Draw linear gradient"}
-          </Button>
-        </div>
+        <div className="h-3" />
       </section>
-
-      {maskToolMode === "create-linear" && (
-        <div className="mask-draw-hint">
-          <MousePointer2 className="size-3.5" />
-          Drag across the photo to place the gradient.
-        </div>
-      )}
-
-      {!selectedMask && maskToolMode !== "create-linear" && (
-        <div className="flex min-h-48 flex-col items-center justify-center px-8 text-center">
-          <Blend className="mb-3 size-5 text-zinc-600" />
-          <p className="text-xs font-medium text-zinc-400">No gradient selected</p>
-          <p className="mt-1 text-[11px] leading-5 text-zinc-600">Draw a gradient, then tune its local adjustments here.</p>
-        </div>
-      )}
 
       {selectedMask && (
         <div data-testid="selected-mask-controls">
           <section className="panel-section border-t border-white/[0.06]">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-xs font-medium text-zinc-200">{selectedMask.name}</p>
-                <p className="mt-0.5 text-[10px] text-zinc-600">Drag the line or either handle to reposition</p>
-              </div>
+              <p className="min-w-0 truncate text-xs font-medium text-zinc-200">{selectedMask.name}</p>
               <Button aria-label={`Delete ${selectedMask.name}`} onClick={() => editorService.deleteMask(photo.id, selectedMask.id)} size="iconSm" title="Delete gradient" variant="ghost">
                 <Trash2 className="size-3.5" />
               </Button>
             </div>
+            <button
+              aria-checked={selectedMask.inverted}
+              className={`mask-invert-toggle ${selectedMask.inverted ? "is-active" : ""}`}
+              onClick={() => editorService.setMaskInverted(photo.id, selectedMask.id, !selectedMask.inverted)}
+              role="switch"
+              type="button"
+            >
+              <span className="flex items-center gap-2"><FlipHorizontal2 className="size-3.5" /> Invert mask</span>
+              <span className="mask-invert-switch"><span /></span>
+            </button>
             <div className="adjustment-control">
               <div className="mb-1 flex h-6 items-center justify-between">
                 <span className="text-xs text-zinc-300">Feather</span>
@@ -148,8 +175,8 @@ export function GradientPanel({ photo }: { photo: RuntimePhoto }) {
                 aria-label="Gradient feather"
                 max={1}
                 min={0.05}
-                onValueChange={([feather]) => editorService.previewLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather })}
-                onValueCommit={([feather]) => editorService.commitLinearGradientGeometry(photo.id, selectedMask.id, { ...getGradientGeometry(selectedMask), feather })}
+                onValueChange={([feather]) => previewFeather(feather)}
+                onValueCommit={([feather]) => commitFeather(feather)}
                 step={0.01}
                 value={[selectedMask.feather]}
               />

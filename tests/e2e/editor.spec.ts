@@ -226,6 +226,70 @@ test("draws, edits, restores, and exports a linear gradient mask", async ({ page
   expect(top.channels[0].mean).toBeLessThan(bottom.channels[0].mean - 20);
 });
 
+test("draws, resizes, inverts, and restores a radial gradient mask", async ({ page }) => {
+  test.setTimeout(EDITOR_TEST_TIMEOUT);
+  const source = await sharp({
+    create: {
+      width: 1000,
+      height: 1000,
+      channels: 4,
+      background: { r: 160, g: 160, b: 160, alpha: 1 },
+    },
+  }).png().toBuffer();
+
+  await page.goto("/");
+  await page.getByTestId("file-input").setInputFiles({
+    name: "radial-source.png",
+    mimeType: "image/png",
+    buffer: source,
+  });
+  const stageLocator = page.getByTestId("photo-stage");
+  await expect(stageLocator).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Draw radial gradient" }).click();
+
+  const stage = await stageLocator.boundingBox();
+  expect(stage).not.toBeNull();
+  const center = { x: stage!.x + stage!.width / 2, y: stage!.y + stage!.height / 2 };
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.down();
+  await page.mouse.move(center.x + Math.min(stage!.width, stage!.height) * 0.2, center.y, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(page.getByRole("button", { name: "Radial Gradient 1", exact: true })).toBeVisible();
+  await expect(page.getByTestId("radial-gradient-center")).toBeVisible();
+  const radiusY = page.getByTestId("radial-gradient-radius-y");
+  const radiusYBox = await radiusY.boundingBox();
+  expect(radiusYBox).not.toBeNull();
+  await page.mouse.move(radiusYBox!.x + radiusYBox!.width / 2, radiusYBox!.y + radiusYBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(radiusYBox!.x + radiusYBox!.width / 2, radiusYBox!.y + radiusYBox!.height / 2 + 35, { steps: 5 });
+  await page.mouse.up();
+
+  const localExposure = page.getByLabel("Mask Exposure value");
+  await localExposure.fill("-1.5");
+  await localExposure.press("Tab");
+  const invert = page.getByRole("switch", { name: "Invert mask" });
+  await expect(invert).toHaveAttribute("aria-checked", "false");
+  await invert.click();
+  await expect(invert).toHaveAttribute("aria-checked", "true");
+  await page.reload();
+  await page.getByRole("tab", { name: /Masks/ }).click();
+  await page.getByRole("button", { name: "Radial Gradient 1", exact: true }).click();
+  await expect(page.getByRole("switch", { name: "Invert mask" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByLabel("Mask Exposure value")).toHaveValue("-1.5");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).not.toBeNull();
+  const exported = await sharp(path!).png().toBuffer();
+  const centerMean = await sampledRedMean(exported, 500, 500, 31);
+  const cornerMean = await sampledRedMean(exported, 40, 40, 31);
+  expect(cornerMean).toBeLessThan(centerMean - 20);
+});
+
 test("edits curves, color, effects, and detail through the shared develop workflow", async ({ page }) => {
   test.setTimeout(EDITOR_TEST_TIMEOUT);
   const source = await sharp({

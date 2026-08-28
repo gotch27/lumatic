@@ -81,6 +81,7 @@ describe("local workspace persistence", () => {
       id: "gradient-1",
       type: "linear-gradient",
       name: "Linear Gradient 1",
+      inverted: false,
       startX: 0.5,
       startY: 0.05,
       endX: 0.5,

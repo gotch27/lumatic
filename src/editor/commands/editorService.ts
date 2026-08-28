@@ -7,10 +7,14 @@ import {
 } from "@/editor/domain/adjustments";
 import {
   createLinearGradientMask,
+  createRadialGradientMask,
   getGradientGeometry,
-  MAX_LINEAR_GRADIENTS,
+  getRadialGradientGeometry,
+  MAX_GRADIENT_MASKS,
   sameGradientGeometry,
+  sameRadialGradientGeometry,
   type LinearGradientGeometry,
+  type RadialGradientGeometry,
 } from "@/editor/domain/masks";
 import {
   COLOR_MIX_PROPERTIES,
@@ -35,7 +39,7 @@ import type {
   EffectValues,
   HistoryEvent,
   HistoryEventType,
-  LinearGradientMask,
+  GradientMask,
   PhotoEditState,
   PhotoRecord,
   RuntimePhoto,
@@ -58,6 +62,7 @@ import {
   developSettingCommandSchema,
   linearGradientGeometrySchema,
   maskAdjustmentCommandSchema,
+  radialGradientGeometrySchema,
   toneCurveCommandSchema,
 } from "@/validation/schemas";
 
@@ -117,14 +122,14 @@ function persistentPhoto(photo: RuntimePhoto): PhotoRecord {
   return record as PhotoRecord;
 }
 
-function findMask(photo: RuntimePhoto, maskId: string): LinearGradientMask | null {
+function findMask(photo: RuntimePhoto, maskId: string): GradientMask | null {
   return photo.editState.masks.find((mask) => mask.id === maskId) ?? null;
 }
 
 function replaceMask(
   editState: PhotoEditState,
   maskId: string,
-  update: (mask: LinearGradientMask) => LinearGradientMask,
+  update: (mask: GradientMask) => GradientMask,
 ): PhotoEditState {
   const next = cloneEditState(editState);
   next.masks = editState.masks.map((mask) => (mask.id === maskId ? update(cloneMask(mask)) : cloneMask(mask)));
@@ -576,11 +581,36 @@ function beginLinearGradient(photoId: string, startX: number, startY: number): s
   cancelAdjustment();
   const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
   if (!photo) return null;
-  if (photo.editState.masks.length >= MAX_LINEAR_GRADIENTS) {
-    addNotice(`A photo can currently contain up to ${MAX_LINEAR_GRADIENTS} linear gradients.`, "error");
+  if (photo.editState.masks.length >= MAX_GRADIENT_MASKS) {
+    addNotice(`A photo can currently contain up to ${MAX_GRADIENT_MASKS} masks.`, "error");
     return null;
   }
-  const mask = createLinearGradientMask(createId(), photo.editState.masks.length + 1, startX, startY);
+  const index = photo.editState.masks.filter((mask) => mask.type === "linear-gradient").length + 1;
+  const mask = createLinearGradientMask(createId(), index, startX, startY);
+  replacePhoto(photoId, (current) => ({
+    ...current,
+    editState: {
+      ...cloneEditState(current.editState),
+      masks: [...current.editState.masks.map(cloneMask), mask],
+    },
+  }));
+  useEditorStore.setState({
+    draft: { kind: "mask-geometry", photoId, maskId: mask.id, baseline: null },
+    selectedMaskId: mask.id,
+  });
+  return mask.id;
+}
+
+function beginRadialGradient(photoId: string, centerX: number, centerY: number): string | null {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  if (!photo) return null;
+  if (photo.editState.masks.length >= MAX_GRADIENT_MASKS) {
+    addNotice(`A photo can currently contain up to ${MAX_GRADIENT_MASKS} masks.`, "error");
+    return null;
+  }
+  const index = photo.editState.masks.filter((mask) => mask.type === "radial-gradient").length + 1;
+  const mask = createRadialGradientMask(createId(), index, centerX, centerY);
   replacePhoto(photoId, (current) => ({
     ...current,
     editState: {
@@ -602,7 +632,7 @@ function previewLinearGradientGeometry(photoId: string, maskId: string, geometry
   const photo = state.photos.find((item) => item.id === photoId);
   if (!photo) return;
   const mask = findMask(photo, maskId);
-  if (!mask) return;
+  if (!mask || mask.type !== "linear-gradient") return;
   const draft = state.draft?.kind === "mask-geometry"
     && state.draft.photoId === photoId
     && state.draft.maskId === maskId
@@ -611,7 +641,9 @@ function previewLinearGradientGeometry(photoId: string, maskId: string, geometry
   useEditorStore.setState({ draft, selectedMaskId: maskId });
   replacePhoto(photoId, (current) => ({
     ...current,
-    editState: replaceMask(current.editState, maskId, (currentMask) => ({ ...currentMask, ...nextGeometry })),
+    editState: replaceMask(current.editState, maskId, (currentMask) => (
+      currentMask.type === "linear-gradient" ? { ...currentMask, ...nextGeometry } : currentMask
+    )),
   }));
 }
 
@@ -625,7 +657,7 @@ function commitLinearGradientGeometry(
   const state = useEditorStore.getState();
   const photo = state.photos.find((item) => item.id === photoId);
   const currentMask = photo ? findMask(photo, maskId) : null;
-  if (!photo || !currentMask) return;
+  if (!photo || !currentMask || currentMask.type !== "linear-gradient") return;
   const baseline = state.draft?.kind === "mask-geometry"
     && state.draft.photoId === photoId
     && state.draft.maskId === maskId
@@ -643,7 +675,8 @@ function commitLinearGradientGeometry(
     }, actor);
     return;
   }
-  if (sameGradientGeometry(getGradientGeometry(baseline), getGradientGeometry(currentMask))) {
+  if (baseline.type === "linear-gradient"
+    && sameGradientGeometry(getGradientGeometry(baseline), getGradientGeometry(currentMask))) {
     useEditorStore.setState({ draft: null, maskToolMode: "idle" });
     return;
   }
@@ -654,6 +687,93 @@ function commitLinearGradientGeometry(
     maskName: currentMask.name,
     label: `Moved ${currentMask.name}`,
   }, actor);
+}
+
+function normalizedRadialGeometry(geometry: RadialGradientGeometry): RadialGradientGeometry {
+  return {
+    centerX: Number(geometry.centerX.toFixed(4)),
+    centerY: Number(geometry.centerY.toFixed(4)),
+    radiusX: Math.max(0.005, Number(Math.abs(geometry.radiusX).toFixed(4))),
+    radiusY: Math.max(0.005, Number(Math.abs(geometry.radiusY).toFixed(4))),
+    feather: Math.min(1, Math.max(0, Number(geometry.feather.toFixed(4)))),
+  };
+}
+
+function previewRadialGradientGeometry(photoId: string, maskId: string, geometry: RadialGradientGeometry): void {
+  const nextGeometry = normalizedRadialGeometry(geometry);
+  radialGradientGeometrySchema.parse(nextGeometry);
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.type !== "radial-gradient") return;
+  const draft = state.draft?.kind === "mask-geometry"
+    && state.draft.photoId === photoId
+    && state.draft.maskId === maskId
+    ? state.draft
+    : { kind: "mask-geometry" as const, photoId, maskId, baseline: cloneMask(mask) };
+  useEditorStore.setState({ draft, selectedMaskId: maskId });
+  replacePhoto(photoId, (current) => ({
+    ...current,
+    editState: replaceMask(current.editState, maskId, (currentMask) => (
+      currentMask.type === "radial-gradient" ? { ...currentMask, ...nextGeometry } : currentMask
+    )),
+  }));
+}
+
+function commitRadialGradientGeometry(
+  photoId: string,
+  maskId: string,
+  geometry: RadialGradientGeometry,
+  actor: Actor = "user",
+): void {
+  previewRadialGradientGeometry(photoId, maskId, geometry);
+  const state = useEditorStore.getState();
+  const photo = state.photos.find((item) => item.id === photoId);
+  const currentMask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !currentMask || currentMask.type !== "radial-gradient") return;
+  const baseline = state.draft?.kind === "mask-geometry"
+    && state.draft.photoId === photoId
+    && state.draft.maskId === maskId
+    ? state.draft.baseline
+    : cloneMask(currentMask);
+  const after = cloneEditState(photo.editState);
+  if (!baseline) {
+    const before = cloneEditState(photo.editState);
+    before.masks = before.masks.filter((mask) => mask.id !== maskId);
+    useEditorStore.setState({ maskToolMode: "idle" });
+    commitEvent(photoId, before, after, "mask.created", {
+      maskId,
+      maskName: currentMask.name,
+      label: `Created ${currentMask.name}`,
+    }, actor);
+    return;
+  }
+  if (baseline.type === "radial-gradient"
+    && sameRadialGradientGeometry(getRadialGradientGeometry(baseline), getRadialGradientGeometry(currentMask))) {
+    useEditorStore.setState({ draft: null, maskToolMode: "idle" });
+    return;
+  }
+  const before = replaceMask(photo.editState, maskId, () => cloneMask(baseline));
+  useEditorStore.setState({ maskToolMode: "idle" });
+  commitEvent(photoId, before, after, "mask.geometry.changed", {
+    maskId,
+    maskName: currentMask.name,
+    label: `Moved ${currentMask.name}`,
+  }, actor);
+}
+
+function setMaskInverted(photoId: string, maskId: string, inverted: boolean): void {
+  cancelAdjustment();
+  const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
+  const mask = photo ? findMask(photo, maskId) : null;
+  if (!photo || !mask || mask.inverted === inverted) return;
+  const before = cloneEditState(photo.editState);
+  const after = replaceMask(photo.editState, maskId, (currentMask) => ({ ...currentMask, inverted }));
+  commitEvent(photoId, before, after, "mask.geometry.changed", {
+    maskId,
+    maskName: mask.name,
+    label: `${inverted ? "Inverted" : "Restored"} ${mask.name}`,
+  }, "user");
 }
 
 function previewMaskAdjustment(photoId: string, maskId: string, key: AdjustmentKey, value: number): void {
@@ -774,7 +894,7 @@ function cancelAdjustment(): void {
     replacePhoto(draft.photoId, (photo) => ({
       ...photo,
       editState: draft.baseline
-        ? replaceMask(photo.editState, draft.maskId, () => cloneMask(draft.baseline as LinearGradientMask))
+        ? replaceMask(photo.editState, draft.maskId, () => cloneMask(draft.baseline as GradientMask))
         : {
             ...cloneEditState(photo.editState),
             masks: photo.editState.masks.filter((mask) => mask.id !== draft.maskId),
@@ -866,7 +986,7 @@ async function newLibrary(): Promise<void> {
   addNotice("A fresh local library is ready.", "success");
 }
 
-function setMaskToolMode(maskToolMode: "idle" | "create-linear"): void {
+function setMaskToolMode(maskToolMode: "idle" | "create-linear" | "create-radial"): void {
   cancelAdjustment();
   useEditorStore.setState({ maskToolMode });
 }
@@ -909,8 +1029,12 @@ export const editorService = {
   commitDetail,
   resetDevelopGroup,
   beginLinearGradient,
+  beginRadialGradient,
   previewLinearGradientGeometry,
   commitLinearGradientGeometry,
+  previewRadialGradientGeometry,
+  commitRadialGradientGeometry,
+  setMaskInverted,
   previewMaskAdjustment,
   commitMaskAdjustment,
   resetMaskAdjustments,

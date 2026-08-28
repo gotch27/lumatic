@@ -70,6 +70,22 @@ export class PhotoEditorDatabase extends Dexie {
           event.after = normalizeEditState(event.after);
         });
       });
+    this.version(5)
+      .stores({
+        workspace: "&id, updatedAt",
+        photos: "&id, order, updatedAt",
+        assets: "&photoId",
+        historyEvents: "&id, photoId, [photoId+sequence], timestamp",
+      })
+      .upgrade(async (transaction) => {
+        await transaction.table("photos").toCollection().modify((photo) => {
+          photo.editState = normalizeEditState(photo.editState);
+        });
+        await transaction.table("historyEvents").toCollection().modify((event) => {
+          event.before = normalizeEditState(event.before);
+          event.after = normalizeEditState(event.after);
+        });
+      });
   }
 }
 

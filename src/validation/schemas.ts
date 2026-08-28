@@ -28,6 +28,14 @@ export const linearGradientGeometrySchema = z.object({
   feather: z.number().finite().min(0).max(1),
 });
 
+export const radialGradientGeometrySchema = z.object({
+  centerX: z.number().finite(),
+  centerY: z.number().finite(),
+  radiusX: z.number().finite().min(0.005),
+  radiusY: z.number().finite().min(0.005),
+  feather: z.number().finite().min(0).max(1),
+});
+
 export const maskAdjustmentCommandSchema = adjustmentCommandSchema.extend({
   maskId: z.string().min(1),
 });

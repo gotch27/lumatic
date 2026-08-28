@@ -1,4 +1,4 @@
-import type { AdjustmentKey, AdjustmentValues, LinearGradientMask, PhotoEditState } from "./types";
+import type { AdjustmentKey, AdjustmentValues, GradientMask, LinearGradientMask, PhotoEditState } from "./types";
 import {
   cloneColorGrading,
   cloneColorMix,
@@ -68,7 +68,7 @@ export function createDefaultEditState(): PhotoEditState {
   };
 }
 
-export function cloneMask(mask: LinearGradientMask): LinearGradientMask {
+export function cloneMask<T extends GradientMask>(mask: T): T {
   return { ...mask, adjustments: { ...mask.adjustments } };
 }
 
@@ -113,10 +113,33 @@ export function normalizeEditState(editState: Partial<PhotoEditState> | undefine
     },
     effects: { ...createDefaultEffects(), ...(editState?.effects ?? {}) },
     detail: { ...createDefaultDetail(), ...(editState?.detail ?? {}) },
-    masks: (editState?.masks ?? []).map((mask) => ({
-      ...mask,
-      adjustments: { ...DEFAULT_ADJUSTMENTS, ...mask.adjustments },
-    })),
+    masks: (editState?.masks ?? []).flatMap<GradientMask>((mask) => {
+      const shared = {
+        ...mask,
+        inverted: mask.inverted === true,
+        feather: clampNormalized(mask.feather ?? 0.65),
+        adjustments: { ...DEFAULT_ADJUSTMENTS, ...mask.adjustments },
+      };
+      if (mask.type === "radial-gradient") {
+        return [{
+          ...shared,
+          type: "radial-gradient" as const,
+          centerX: roundGradientCoordinate(mask.centerX),
+          centerY: roundGradientCoordinate(mask.centerY),
+          radiusX: Math.max(0.005, Math.abs(roundGradientCoordinate(mask.radiusX))),
+          radiusY: Math.max(0.005, Math.abs(roundGradientCoordinate(mask.radiusY))),
+        }];
+      }
+      if (mask.type !== "linear-gradient") return [];
+      return [{
+        ...shared,
+        type: "linear-gradient" as const,
+        startX: roundGradientCoordinate(mask.startX),
+        startY: roundGradientCoordinate(mask.startY),
+        endX: roundGradientCoordinate(mask.endX),
+        endY: roundGradientCoordinate(mask.endY),
+      }];
+    }),
   };
 }
 

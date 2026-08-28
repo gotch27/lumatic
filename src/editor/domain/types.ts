@@ -76,17 +76,31 @@ export interface DetailValues {
   colorNoiseSmoothness: number;
 }
 
-export interface LinearGradientMask {
+interface BaseGradientMask {
   id: string;
-  type: "linear-gradient";
   name: string;
+  inverted: boolean;
+  feather: number;
+  adjustments: AdjustmentValues;
+}
+
+export interface LinearGradientMask extends BaseGradientMask {
+  type: "linear-gradient";
   startX: number;
   startY: number;
   endX: number;
   endY: number;
-  feather: number;
-  adjustments: AdjustmentValues;
 }
+
+export interface RadialGradientMask extends BaseGradientMask {
+  type: "radial-gradient";
+  centerX: number;
+  centerY: number;
+  radiusX: number;
+  radiusY: number;
+}
+
+export type GradientMask = LinearGradientMask | RadialGradientMask;
 
 export interface PhotoEditState {
   adjustments: AdjustmentValues;
@@ -95,7 +109,7 @@ export interface PhotoEditState {
   colorGrading: ColorGrading;
   effects: EffectValues;
   detail: DetailValues;
-  masks: LinearGradientMask[];
+  masks: GradientMask[];
 }
 
 export interface PhotoRecord {

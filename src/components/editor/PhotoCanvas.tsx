@@ -6,32 +6,61 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Button } from "@/components/ui/button";
 import { editorService } from "@/editor/commands/editorService";
 import { createDefaultEditState } from "@/editor/domain/adjustments";
-import { getGradientGeometry, type LinearGradientGeometry } from "@/editor/domain/masks";
-import type { LinearGradientMask, RuntimePhoto } from "@/editor/domain/types";
+import {
+  getGradientGeometry,
+  getRadialGradientGeometry,
+  type LinearGradientGeometry,
+  type RadialGradientGeometry,
+} from "@/editor/domain/masks";
+import type { GradientMask, LinearGradientMask, RadialGradientMask, RuntimePhoto } from "@/editor/domain/types";
 import { PhotoRenderer } from "@/editor/renderer/PhotoRenderer";
 import { useEditorStore } from "@/editor/state/store";
 
 interface CreateDrag {
   maskId: string;
+  type: "linear-gradient" | "radial-gradient";
   startX: number;
   startY: number;
 }
 
-interface MaskDrag {
+interface LinearMaskDrag {
   maskId: string;
+  type: "linear-gradient";
   kind: "start" | "end" | "move";
   initial: LinearGradientGeometry;
   pointerStartX: number;
   pointerStartY: number;
 }
 
-interface OverlayMask {
+interface RadialMaskDrag {
+  maskId: string;
+  type: "radial-gradient";
+  kind: "center" | "radius-x" | "radius-y" | "move";
+  initial: RadialGradientGeometry;
+  pointerStartX: number;
+  pointerStartY: number;
+}
+
+type MaskDrag = LinearMaskDrag | RadialMaskDrag;
+
+interface LinearOverlayMask {
+  type: "linear-gradient";
   mask: LinearGradientMask;
   start: { x: number; y: number };
   end: { x: number; y: number };
 }
 
-function latestMask(photoId: string, maskId: string): LinearGradientMask | null {
+interface RadialOverlayMask {
+  type: "radial-gradient";
+  mask: RadialGradientMask;
+  center: { x: number; y: number };
+  radiusX: number;
+  radiusY: number;
+}
+
+type OverlayMask = LinearOverlayMask | RadialOverlayMask;
+
+function latestMask(photoId: string, maskId: string): GradientMask | null {
   const photo = useEditorStore.getState().photos.find((item) => item.id === photoId);
   return photo?.editState.masks.find((mask) => mask.id === maskId) ?? null;
 }
@@ -116,10 +145,22 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
       setOverlayMasks([]);
       return;
     }
-    setOverlayMasks(photo.editState.masks.flatMap((mask) => {
-      const start = renderer.imageToScreen(mask.startX, mask.startY);
-      const end = renderer.imageToScreen(mask.endX, mask.endY);
-      return start && end ? [{ mask, start, end }] : [];
+    setOverlayMasks(photo.editState.masks.flatMap((mask): OverlayMask[] => {
+      if (mask.type === "linear-gradient") {
+        const start = renderer.imageToScreen(mask.startX, mask.startY);
+        const end = renderer.imageToScreen(mask.endX, mask.endY);
+        return start && end ? [{ type: "linear-gradient", mask, start, end }] : [];
+      }
+      const center = renderer.imageToScreen(mask.centerX, mask.centerY);
+      const horizontal = renderer.imageToScreen(mask.centerX + mask.radiusX, mask.centerY);
+      const vertical = renderer.imageToScreen(mask.centerX, mask.centerY + mask.radiusY);
+      return center && horizontal && vertical ? [{
+        type: "radial-gradient",
+        mask,
+        center,
+        radiusX: Math.abs(horizontal.x - center.x),
+        radiusY: Math.abs(vertical.y - center.y),
+      }] : [];
     }));
   }, [photo.editState.masks, showOriginal, transformVersion]);
 
@@ -141,8 +182,8 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
 
   const startMaskDrag = (
     event: ReactPointerEvent<SVGElement>,
-    mask: LinearGradientMask,
-    kind: MaskDrag["kind"],
+    mask: GradientMask,
+    kind: "start" | "end" | "center" | "radius-x" | "radius-y" | "move",
   ) => {
     const point = pointFromEvent(event.clientX, event.clientY);
     if (!point) return;
@@ -150,13 +191,25 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     editorService.selectMask(mask.id);
-    maskDragRef.current = {
-      maskId: mask.id,
-      kind,
-      initial: getGradientGeometry(mask),
-      pointerStartX: point.x,
-      pointerStartY: point.y,
-    };
+    if (mask.type === "linear-gradient" && (kind === "start" || kind === "end" || kind === "move")) {
+      maskDragRef.current = {
+        maskId: mask.id,
+        type: "linear-gradient",
+        kind,
+        initial: getGradientGeometry(mask),
+        pointerStartX: point.x,
+        pointerStartY: point.y,
+      };
+    } else if (mask.type === "radial-gradient" && (kind === "center" || kind === "radius-x" || kind === "radius-y" || kind === "move")) {
+      maskDragRef.current = {
+        maskId: mask.id,
+        type: "radial-gradient",
+        kind,
+        initial: getRadialGradientGeometry(mask),
+        pointerStartX: point.x,
+        pointerStartY: point.y,
+      };
+    }
   };
 
   const moveMaskDrag = (event: ReactPointerEvent<SVGElement>) => {
@@ -164,23 +217,41 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     if (!drag) return;
     const point = pointFromEvent(event.clientX, event.clientY);
     if (!point) return;
+    if (drag.type === "linear-gradient") {
+      let geometry = { ...drag.initial };
+      if (drag.kind === "start") {
+        geometry = { ...geometry, startX: point.x, startY: point.y };
+      } else if (drag.kind === "end") {
+        geometry = { ...geometry, endX: point.x, endY: point.y };
+      } else {
+        const deltaX = point.x - drag.pointerStartX;
+        const deltaY = point.y - drag.pointerStartY;
+        geometry = {
+          ...geometry,
+          startX: geometry.startX + deltaX,
+          startY: geometry.startY + deltaY,
+          endX: geometry.endX + deltaX,
+          endY: geometry.endY + deltaY,
+        };
+      }
+      editorService.previewLinearGradientGeometry(photo.id, drag.maskId, geometry);
+      return;
+    }
     let geometry = { ...drag.initial };
-    if (drag.kind === "start") {
-      geometry = { ...geometry, startX: point.x, startY: point.y };
-    } else if (drag.kind === "end") {
-      geometry = { ...geometry, endX: point.x, endY: point.y };
+    if (drag.kind === "radius-x") {
+      geometry = { ...geometry, radiusX: Math.max(0.005, Math.abs(point.x - geometry.centerX)) };
+    } else if (drag.kind === "radius-y") {
+      geometry = { ...geometry, radiusY: Math.max(0.005, Math.abs(point.y - geometry.centerY)) };
     } else {
       const deltaX = point.x - drag.pointerStartX;
       const deltaY = point.y - drag.pointerStartY;
       geometry = {
         ...geometry,
-        startX: geometry.startX + deltaX,
-        startY: geometry.startY + deltaY,
-        endX: geometry.endX + deltaX,
-        endY: geometry.endY + deltaY,
+        centerX: geometry.centerX + deltaX,
+        centerY: geometry.centerY + deltaY,
       };
     }
-    editorService.previewLinearGradientGeometry(photo.id, drag.maskId, geometry);
+    editorService.previewRadialGradientGeometry(photo.id, drag.maskId, geometry);
   };
 
   const finishMaskDrag = (event: ReactPointerEvent<SVGElement>) => {
@@ -188,21 +259,33 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
     if (!drag) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
     const mask = latestMask(photo.id, drag.maskId);
-    if (mask) editorService.commitLinearGradientGeometry(photo.id, drag.maskId, getGradientGeometry(mask));
+    if (mask?.type === "linear-gradient") {
+      editorService.commitLinearGradientGeometry(photo.id, drag.maskId, getGradientGeometry(mask));
+    } else if (mask?.type === "radial-gradient") {
+      editorService.commitRadialGradientGeometry(photo.id, drag.maskId, getRadialGradientGeometry(mask));
+    }
     maskDragRef.current = null;
   };
 
   return (
     <div className="photo-stage" data-testid="photo-stage">
       <div
-        className={`photo-canvas-host ${maskToolMode === "create-linear" ? "is-drawing-mask" : ""}`}
+        className={`photo-canvas-host ${maskToolMode !== "idle" ? "is-drawing-mask" : ""}`}
         onPointerDown={(event) => {
-          if (maskToolMode === "create-linear") {
+          if (maskToolMode !== "idle") {
             const point = pointFromEvent(event.clientX, event.clientY);
             if (!point) return;
-            const maskId = editorService.beginLinearGradient(photo.id, point.x, point.y);
+            const isLinear = maskToolMode === "create-linear";
+            const maskId = isLinear
+              ? editorService.beginLinearGradient(photo.id, point.x, point.y)
+              : editorService.beginRadialGradient(photo.id, point.x, point.y);
             if (!maskId) return;
-            createDragRef.current = { maskId, startX: point.x, startY: point.y };
+            createDragRef.current = {
+              maskId,
+              type: isLinear ? "linear-gradient" : "radial-gradient",
+              startX: point.x,
+              startY: point.y,
+            };
             event.currentTarget.setPointerCapture(event.pointerId);
             return;
           }
@@ -215,13 +298,27 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           if (createDrag) {
             const point = pointFromEvent(event.clientX, event.clientY);
             if (point) {
-              editorService.previewLinearGradientGeometry(photo.id, createDrag.maskId, {
-                startX: createDrag.startX,
-                startY: createDrag.startY,
-                endX: point.x,
-                endY: point.y,
-                feather: 0.65,
-              });
+              if (createDrag.type === "linear-gradient") {
+                editorService.previewLinearGradientGeometry(photo.id, createDrag.maskId, {
+                  startX: createDrag.startX,
+                  startY: createDrag.startY,
+                  endX: point.x,
+                  endY: point.y,
+                  feather: 0.65,
+                });
+              } else {
+                const radiusInPixels = Math.hypot(
+                  (point.x - createDrag.startX) * photo.width,
+                  (point.y - createDrag.startY) * photo.height,
+                );
+                editorService.previewRadialGradientGeometry(photo.id, createDrag.maskId, {
+                  centerX: createDrag.startX,
+                  centerY: createDrag.startY,
+                  radiusX: radiusInPixels / photo.width,
+                  radiusY: radiusInPixels / photo.height,
+                  feather: 0.65,
+                });
+              }
             }
             return;
           }
@@ -235,7 +332,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
           const createDrag = createDragRef.current;
           if (createDrag) {
             const mask = latestMask(photo.id, createDrag.maskId);
-            if (mask) editorService.commitLinearGradientGeometry(photo.id, createDrag.maskId, getGradientGeometry(mask));
+            if (mask?.type === "linear-gradient") {
+              editorService.commitLinearGradientGeometry(photo.id, createDrag.maskId, getGradientGeometry(mask));
+            } else if (mask?.type === "radial-gradient") {
+              editorService.commitRadialGradientGeometry(photo.id, createDrag.maskId, getRadialGradientGeometry(mask));
+            }
             createDragRef.current = null;
           }
           panRef.current = null;
@@ -253,7 +354,71 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
 
       {ready && overlayMasks.length > 0 && (
         <svg aria-label="Gradient overlay" className="gradient-overlay" data-testid="gradient-overlay">
-          {overlayMasks.map(({ mask, start, end }) => {
+          {overlayMasks.map((overlay) => {
+            if (overlay.type === "radial-gradient") {
+              const { mask, center, radiusX, radiusY } = overlay;
+              const selected = mask.id === selectedMaskId;
+              const sharedHandlers = {
+                onPointerMove: moveMaskDrag,
+                onPointerUp: finishMaskDrag,
+                onPointerCancel: finishMaskDrag,
+              };
+              return (
+                <g className={selected ? "is-selected" : ""} key={mask.id}>
+                  <ellipse
+                    {...sharedHandlers}
+                    className="radial-boundary-hit"
+                    data-testid={`radial-gradient-${mask.id}`}
+                    onPointerDown={(event) => startMaskDrag(event, mask, "move")}
+                    cx={center.x}
+                    cy={center.y}
+                    rx={radiusX}
+                    ry={radiusY}
+                  />
+                  <ellipse
+                    className={`radial-boundary ${selected ? "is-selected" : ""}`}
+                    cx={center.x}
+                    cy={center.y}
+                    rx={radiusX}
+                    ry={radiusY}
+                  />
+                  {selected && (
+                    <>
+                      <line className="radial-axis" x1={center.x - radiusX} x2={center.x + radiusX} y1={center.y} y2={center.y} />
+                      <line className="radial-axis" x1={center.x} x2={center.x} y1={center.y - radiusY} y2={center.y + radiusY} />
+                      <circle
+                        {...sharedHandlers}
+                        className="gradient-handle radial-center-handle"
+                        data-testid="radial-gradient-center"
+                        onPointerDown={(event) => startMaskDrag(event, mask, "center")}
+                        cx={center.x}
+                        cy={center.y}
+                        r="5"
+                      />
+                      <circle
+                        {...sharedHandlers}
+                        className="gradient-handle gradient-handle-end"
+                        data-testid="radial-gradient-radius-x"
+                        onPointerDown={(event) => startMaskDrag(event, mask, "radius-x")}
+                        cx={center.x + radiusX}
+                        cy={center.y}
+                        r="6"
+                      />
+                      <circle
+                        {...sharedHandlers}
+                        className="gradient-handle gradient-handle-end"
+                        data-testid="radial-gradient-radius-y"
+                        onPointerDown={(event) => startMaskDrag(event, mask, "radius-y")}
+                        cx={center.x}
+                        cy={center.y + radiusY}
+                        r="6"
+                      />
+                    </>
+                  )}
+                </g>
+              );
+            }
+            const { mask, start, end } = overlay;
             const selected = mask.id === selectedMaskId;
             const dx = end.x - start.x;
             const dy = end.y - start.y;
@@ -329,7 +494,11 @@ export default function PhotoCanvas({ photo, showOriginal }: { photo: RuntimePho
         </div>
       )}
 
-      {maskToolMode === "create-linear" && <div className="mask-tool-badge">Drag on photo to draw gradient · Esc to cancel</div>}
+      {maskToolMode !== "idle" && (
+        <div className="mask-tool-badge">
+          Drag on photo to draw {maskToolMode === "create-linear" ? "linear" : "radial"} gradient · Esc to cancel
+        </div>
+      )}
       {!ready && !error && (
         <div className="absolute inset-0 grid place-items-center text-xs text-zinc-500">
           <span className="loading-shimmer">Preparing GPU preview…</span>

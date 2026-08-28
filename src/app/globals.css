@@ -108,6 +108,11 @@ button:disabled { cursor: default; }
 .gradient-handle { fill: #181818; stroke: #f4f4f5; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: grab; pointer-events: all; }
 .gradient-handle:active { cursor: grabbing; }
 .gradient-handle-end { fill: #f4f4f5; stroke: #181818; }
+.radial-boundary { fill: none; stroke: rgba(212,212,212,.5); stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.radial-boundary.is-selected { stroke: #f1f1f1; }
+.radial-boundary-hit { fill: transparent; stroke: transparent; stroke-width: 16; vector-effect: non-scaling-stroke; cursor: move; pointer-events: stroke; }
+.radial-axis { stroke: rgba(228,228,231,.36); stroke-width: 1; stroke-dasharray: 4 5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.radial-center-handle { fill: #f4f4f5; stroke: #181818; }
 .mask-tool-badge { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px 9px; background: rgba(24,24,24,.92); color: #b9b9b9; font-size: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); pointer-events: none; }
 .photo-name-label { position: absolute; z-index: 4; max-width: min(320px, calc(100% - 24px)); transform: translateY(calc(-100% - 7px)); overflow: hidden; color: #8a8a8a; font-size: 10px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
 .canvas-tools { position: absolute; right: 12px; bottom: 12px; display: flex; align-items: center; gap: 3px; border-radius: 7px; padding: 3px; border: 1px solid #333; background: rgba(24,24,24,.92); box-shadow: 0 8px 24px rgba(0,0,0,.28); backdrop-filter: blur(10px); }
@@ -137,6 +142,13 @@ button:disabled { cursor: default; }
 .mask-list-item:hover { background: rgba(255,255,255,.035); color: #c6c6c6; }
 .mask-list-item.is-active { background: #292929; color: #e5e5e5; }
 .mask-draw-hint { display: flex; align-items: center; gap: 7px; margin: 9px; border: 1px solid #383838; border-radius: 6px; padding: 8px 9px; background: #1d1d1d; color: #a3a3a3; font-size: 10px; line-height: 1.45; }
+.mask-invert-toggle { display: flex; width: 100%; height: 32px; align-items: center; justify-content: space-between; margin-bottom: 12px; border-radius: 6px; padding: 0 8px; color: #a3a3a3; font-size: 11px; transition: background .15s, color .15s; }
+.mask-invert-toggle:hover { background: rgba(255,255,255,.035); color: #e4e4e7; }
+.mask-invert-toggle.is-active { color: #f4f4f5; }
+.mask-invert-switch { display: flex; width: 26px; height: 15px; align-items: center; border-radius: 999px; padding: 2px; background: #3f3f46; transition: background .15s; }
+.mask-invert-switch > span { width: 11px; height: 11px; border-radius: 999px; background: #a1a1aa; transition: transform .15s, background .15s; }
+.mask-invert-toggle.is-active .mask-invert-switch { background: #e4e4e7; }
+.mask-invert-toggle.is-active .mask-invert-switch > span { transform: translateX(11px); background: #18181b; }
 
 .drop-overlay { position: fixed; inset: var(--topbar-height) 0 var(--filmstrip-height); z-index: 40; display: grid; place-items: center; background: rgba(10,10,10,.82); backdrop-filter: blur(10px); }
 .drop-card { display: flex; min-width: 280px; flex-direction: column; align-items: center; gap: 8px; border: 1px dashed #505050; border-radius: 10px; padding: 34px; color: #e5e5e5; background: #1b1b1b; box-shadow: 0 20px 60px rgba(0,0,0,.4); }

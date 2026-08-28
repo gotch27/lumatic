@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { editorService } from "@/editor/commands/editorService";
 import { createDefaultEditState } from "@/editor/domain/adjustments";
-import { getGradientGeometry } from "@/editor/domain/masks";
+import { getGradientGeometry, getRadialGradientGeometry } from "@/editor/domain/masks";
 import type { RuntimePhoto } from "@/editor/domain/types";
 import { resetDatabaseForTests } from "@/editor/persistence/db";
 import { initialEditorState, useEditorStore } from "@/editor/state/store";
@@ -100,6 +100,7 @@ describe("editor command service", () => {
       feather: 0.7,
     });
     const mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "linear-gradient") throw new Error("Expected linear gradient");
     editorService.commitLinearGradientGeometry("photo-1", maskId!, getGradientGeometry(mask));
     editorService.previewMaskAdjustment("photo-1", maskId!, "exposure", -0.4);
     editorService.previewMaskAdjustment("photo-1", maskId!, "exposure", -0.8);
@@ -132,22 +133,58 @@ describe("editor command service", () => {
     expect(mask).toMatchObject({ startX: -0.25, startY: -0.1, endX: 1.3, endY: 1.2 });
   });
 
+  it("creates, resizes, inverts, and restores a radial gradient", () => {
+    const maskId = editorService.beginRadialGradient("photo-1", 0.5, 0.45)!;
+    editorService.previewRadialGradientGeometry("photo-1", maskId, {
+      centerX: 0.5,
+      centerY: 0.45,
+      radiusX: 0.3,
+      radiusY: 0.2,
+      feather: 0.4,
+    });
+    let mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "radial-gradient") throw new Error("Expected radial gradient");
+    editorService.commitRadialGradientGeometry("photo-1", maskId, getRadialGradientGeometry(mask));
+    editorService.setMaskInverted("photo-1", maskId, true);
+
+    mask = useEditorStore.getState().photos[0].editState.masks[0];
+    expect(mask).toMatchObject({
+      type: "radial-gradient",
+      centerX: 0.5,
+      radiusX: 0.3,
+      radiusY: 0.2,
+      feather: 0.4,
+      inverted: true,
+    });
+    expect(useEditorStore.getState().historyByPhoto["photo-1"].map((event) => event.type)).toEqual([
+      "mask.created",
+      "mask.geometry.changed",
+    ]);
+
+    editorService.undo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ inverted: false });
+    editorService.redo("photo-1");
+    expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ inverted: true });
+  });
+
   it("undoes and redoes mask geometry, local edits, and deletion", () => {
     const maskId = editorService.beginLinearGradient("photo-1", 0.1, 0.1)!;
     let mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "linear-gradient") throw new Error("Expected linear gradient");
     editorService.commitLinearGradientGeometry("photo-1", maskId, getGradientGeometry(mask));
     editorService.previewLinearGradientGeometry("photo-1", maskId, { ...getGradientGeometry(mask), endY: 0.8 });
     mask = useEditorStore.getState().photos[0].editState.masks[0];
+    if (mask.type !== "linear-gradient") throw new Error("Expected linear gradient");
     editorService.commitLinearGradientGeometry("photo-1", maskId, getGradientGeometry(mask));
     editorService.deleteMask("photo-1", maskId);
     expect(useEditorStore.getState().photos[0].editState.masks).toHaveLength(0);
 
     editorService.undo("photo-1");
-    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.8);
+    expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ endY: 0.8 });
     editorService.undo("photo-1");
-    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.35);
+    expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ endY: 0.35 });
     editorService.redo("photo-1");
-    expect(useEditorStore.getState().photos[0].editState.masks[0].endY).toBe(0.8);
+    expect(useEditorStore.getState().photos[0].editState.masks[0]).toMatchObject({ endY: 0.8 });
   });
 
   it("coalesces curves, color, effects, and detail into structured history", () => {
